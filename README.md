@@ -1,11 +1,42 @@
 <!--
 ---
-title: Permutation CipherLab
-category: classical-cryptography
-difficulty: 1
-description: Interactive tool for exploring permutation ciphers — define, edit, and visualize custom transposition patterns.
-tags: [cipher, permutation, transposition, education, javascript]
-demo: https://ipusiron.github.io/permutation-cipherlab/
+id: day095
+slug: permutation-cipherlab
+
+title: "Permutation CipherLab"
+
+subtitle_ja: "転置式暗号ツール"
+subtitle_en: "Permutation Cipher Visualization Tool"
+
+description_ja: "任意の転置パターンで文字列を並び替える転置式暗号をビジュアルで理解するためのツール。ランダム生成・手動入力・ドラッグ＆ドロップで鍵を作成し、ブロック単位の暗号化・復号を体験できます。"
+description_en: "Interactive tool for exploring permutation ciphers — define, edit, and visualize custom transposition patterns. Generate keys randomly, manually, or via drag-and-drop, and experience block-wise encryption and decryption."
+
+category_ja:
+  - 古典暗号
+  - 転置式暗号
+  - 現代暗号
+  - ブロック暗号
+category_en:
+  - Classical Cryptography
+  - Transposition Cipher
+  - Modern Cryptography
+  - Block Cipher
+
+difficulty: 4
+
+tags:
+  - cipher
+  - permutation
+  - transposition
+  - block-cipher
+  - visualization
+  - education
+  - javascript
+
+repo_url: "https://github.com/ipusiron/permutation-cipherlab"
+demo_url: "https://ipusiron.github.io/permutation-cipherlab/"
+
+hub: true
 ---
 -->
 
@@ -19,7 +50,7 @@ demo: https://ipusiron.github.io/permutation-cipherlab/
 
 **Day095 - 生成AIで作るセキュリティツール100**
 
-**Permutation CipherLab** は、文字列を任意の並び順（例：`3-1-4-2`）で転置することで暗号化・復号化を体験できるWebツールです。
+**Permutation CipherLab** は、文字列を任意の並び順（例：`3-1-4-2`）で転置することで暗号化・復号を体験できるWebツールです。
 
 ユーザーはGUI上で転置パターンを自由に定義・編集・保存し、平文の並び替えルールを視覚的に理解できます。
 

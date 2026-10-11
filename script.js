@@ -18,6 +18,8 @@
   const Solver = window.PclSolver;
   const Wiring = window.PclWiring;
   const Messages = window.PclMessages;
+  const I18n = window.PclI18n;
+  const UI_EN = window.PclUiEn;
 
   /* ==========================================================================
    * DOM Helpers
@@ -30,6 +32,7 @@
    * ========================================================================== */
   const STORAGE_KEY = 'pcl_patterns_v1';  // 保存した鍵（送る向きの文字列）
   const STEP_INTERVAL = 450;              // 「自動で引く」の間隔（ミリ秒）
+  const LANG_KEY = 'pcl_lang';             // 保存した表示の言語
 
   const state = {
     lang: 'ja',
@@ -39,11 +42,14 @@
     dec: { result: null, block: 0 },
     editorOpen: false,
     editorSelected: null,
+    editorStatus: null,       // 並べ替えの状態の文（キー＋引数）
     conv: null,               // 変換タブで作った鍵
     comp: null,               // 合成した鍵
     lab: {
       kpaKey: null,           // 既知平文で求めた鍵
       coaToken: 0,            // 鍵なし解読の実行を区別する番号（入力が変わったら古い実行を捨てる）
+      coaStatus: null,        // 鍵なし解読の状態の文（キー＋引数。言語を切り替えたら描き直す）
+      wbStatus: null,         // 作業台の状態の文（キー＋引数）
       coaResults: [],
       wb: { k: 4, order: [0, 1, 2, 3], selected: null },
     },
@@ -51,6 +57,9 @@
   };
 
   const t = (key, params) => Messages.format(state.lang, key, params);
+
+  // index.html の日本語の原文を、画面を描く前に控える（js/i18n.js）
+  I18n.collect(document.body);
   const describe = (err) => t(err.key, err.params);
 
   /* ==========================================================================
@@ -374,6 +383,11 @@
   /* ========== 並べ替え（タップで2つを入れ替え／キーボード／マウスのドラッグ） ========== */
   const editorList = $('#keygen-draggable');
   const editorStatus = $('#keygen-drag-status');
+
+  function setEditorStatus(key, params) {
+    state.editorStatus = key ? { key, params } : null;
+    editorStatus.textContent = key ? t(key, params) : '';
+  }
   let dragFrom = null;
 
   function editorValues() {
@@ -409,7 +423,7 @@
     state.editorSelected = null;
     applyValues(values);
     renderEditor(b);
-    editorStatus.textContent = t('editor.swapped', { a: values[b], b: values[a], key: keyText() });
+    setEditorStatus('editor.swapped', { a: values[b], b: values[a], key: keyText() });
   }
 
   function moveChip(from, to) {
@@ -418,7 +432,7 @@
     state.editorSelected = to;
     applyValues(values);
     renderEditor(to);
-    editorStatus.textContent = t('editor.moved', { value: values[to], pos: to + 1, key: keyText() });
+    setEditorStatus('editor.moved', { value: values[to], pos: to + 1, key: keyText() });
   }
 
   const chipIndex = (target) => {
@@ -432,11 +446,11 @@
     if (state.editorSelected === null) {
       state.editorSelected = i;
       renderEditor(i);
-      editorStatus.textContent = t('editor.selected', { value: editorValues()[i] });
+      setEditorStatus('editor.selected', { value: editorValues()[i] });
     } else if (state.editorSelected === i) {
       state.editorSelected = null;
       renderEditor(i);
-      editorStatus.textContent = t('editor.cancelled');
+      setEditorStatus('editor.cancelled');
     } else {
       swapChips(state.editorSelected, i);
     }
@@ -449,7 +463,7 @@
     if (e.key === 'Escape' && state.editorSelected !== null) {
       state.editorSelected = null;
       renderEditor(i);
-      editorStatus.textContent = t('editor.cancelled');
+      setEditorStatus('editor.cancelled');
       return;
     }
     const delta = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
@@ -487,7 +501,7 @@
     $('#keygen-draggable-wrap').hidden = !state.editorOpen;
     e.currentTarget.setAttribute('aria-expanded', String(state.editorOpen));
     e.currentTarget.textContent = t(state.editorOpen ? 'editor.close' : 'editor.open');
-    editorStatus.textContent = '';
+    setEditorStatus(null);
     if (state.editorOpen) renderEditor();
   });
 
@@ -1017,13 +1031,18 @@
     info.textContent = t('lab.info', { n, model: t(`lab.model.${model}`) });
   }
 
+  function setCoaStatus(key, params) {
+    state.lab.coaStatus = key ? { key, params } : null;
+    $('#coa-status').textContent = key ? t(key, params) : '';
+  }
+
   function onLabInput() {
     renderLabInfo();
-    if (state.lab.coaResults.length || $('#coa-status').textContent) {
+    if (state.lab.coaResults.length || state.lab.coaStatus) {
       state.lab.coaToken++;
       state.lab.coaResults = [];
       $('#coa-wrap').hidden = true;
-      $('#coa-status').textContent = t('coa.stale');
+      setCoaStatus('coa.stale');
       $('#coa-run').disabled = false;
     }
     scheduleKpa();
@@ -1178,8 +1197,8 @@
   function runCoa() {
     const text = labText();
     const n = labUnits().length;
-    if (!n) { $('#coa-status').textContent = t('lab.empty'); return; }
-    if (n > Solver.MAX_INPUT) { $('#coa-status').textContent = t('lab.tooLong', { max: Solver.MAX_INPUT, n }); return; }
+    if (!n) { setCoaStatus('lab.empty'); return; }
+    if (n > Solver.MAX_INPUT) { setCoaStatus('lab.tooLong', { max: Solver.MAX_INPUT, n }); return; }
     const choice = $('#coa-k').value;
     const token = ++state.lab.coaToken;
     const started = performance.now();
@@ -1188,20 +1207,20 @@
     if (choice !== 'auto') {
       const k = Number(choice);
       const r = Solver.solveLength(text, k);
-      if (!r.ok) { $('#coa-status').textContent = describe(r.error); return; }
+      if (!r.ok) { setCoaStatus(r.error.key, r.error.params); return; }
       state.lab.coaResults = [r];
-      $('#coa-status').textContent = t('coa.doneFixed', { k, ms: Math.round(performance.now() - started) });
+      setCoaStatus('coa.doneFixed', { k, ms: Math.round(performance.now() - started) });
       renderCoaResults();
       return;
     }
     const hi = Math.min(Solver.MAX_K, Math.floor(n / 2));
-    if (hi < Solver.MIN_K) { $('#coa-status').textContent = t('solve.tooShort', { k: Solver.MIN_K }); return; }
+    if (hi < Solver.MIN_K) { setCoaStatus('solve.tooShort', { k: Solver.MIN_K }); return; }
     const results = [];
     $('#coa-run').disabled = true;
     let k = Solver.MIN_K;
     const step = () => {
       if (token !== state.lab.coaToken) return;
-      $('#coa-status').textContent = t('coa.running', { k, hi });
+      setCoaStatus('coa.running', { k, hi });
       setTimeout(() => {
         if (token !== state.lab.coaToken) return;
         const r = Solver.solveLength(text, k);
@@ -1210,7 +1229,7 @@
         if (k <= hi) { step(); return; }
         results.sort((x, y) => y.rank - x.rank);
         state.lab.coaResults = results;
-        $('#coa-status').textContent = t('coa.done', { count: results.length, ms: Math.round(performance.now() - started) });
+        setCoaStatus('coa.done', { count: results.length, ms: Math.round(performance.now() - started) });
         $('#coa-run').disabled = false;
         renderCoaResults();
       }, 0);
@@ -1221,6 +1240,11 @@
   $('#coa-run').addEventListener('click', runCoa);
 
   /* ---------- 作業台 ---------- */
+  function setWbStatus(key, params) {
+    state.lab.wbStatus = key ? { key, params } : null;
+    $('#wb-status').textContent = key ? t(key, params) : '';
+  }
+
   function resetWorkbench(k = readInt('#wb-k')) {
     const kk = Number.isInteger(k) ? k : 4;
     state.lab.wb = { k: kk, order: Array.from({ length: kk }, (_, i) => i), selected: null };
@@ -1231,23 +1255,24 @@
     const wb = state.lab.wb;
     const units = labUnits();
     const grid = $('#wb-grid');
-    const status = $('#wb-status');
     grid.replaceChildren();
     $('#wb-pairs').replaceChildren();
     $('#wb-plain').textContent = '';
     $('#wb-more').hidden = true;
     $('#wb-use').disabled = true;
     if (!Number.isInteger(wb.k) || wb.k < Core.MIN_LENGTH || wb.k > Core.MAX_LENGTH) {
-      status.textContent = t('wb.range', { max: Core.MAX_LENGTH });
+      setWbStatus('wb.range', { max: Core.MAX_LENGTH });
       return;
     }
     const rows = Math.floor(units.length / wb.k);
     if (rows < 2) {
-      status.textContent = units.length ? t('wb.tooShort', { k: wb.k }) : t('lab.empty');
+      if (units.length) setWbStatus('wb.tooShort', { k: wb.k });
+      else setWbStatus('lab.empty');
       return;
     }
     const tail = units.slice(rows * wb.k);
-    status.textContent = tail.length ? t('wb.status', { rows, k: wb.k, tail: tail.length }) : t('wb.statusFull', { rows, k: wb.k });
+    if (tail.length) setWbStatus('wb.status', { rows, k: wb.k, tail: tail.length });
+    else setWbStatus('wb.statusFull', { rows, k: wb.k });
 
     const thead = document.createElement('thead');
     const hr = document.createElement('tr');
@@ -1310,7 +1335,7 @@
     [wb.order[a], wb.order[b]] = [wb.order[b], wb.order[a]];
     wb.selected = select;
     renderWorkbench(b);
-    $('#wb-status').textContent = t('wb.swapped', { a: wb.order[b] + 1, b: wb.order[a] + 1 });
+    setWbStatus('wb.swapped', { a: wb.order[b] + 1, b: wb.order[a] + 1 });
   }
 
   const wbPos = (target) => {
@@ -1325,11 +1350,11 @@
     if (wb.selected === null) {
       wb.selected = pos;
       renderWorkbench(pos);
-      $('#wb-status').textContent = t('wb.selected', { col: wb.order[pos] + 1 });
+      setWbStatus('wb.selected', { col: wb.order[pos] + 1 });
     } else if (wb.selected === pos) {
       wb.selected = null;
       renderWorkbench(pos);
-      $('#wb-status').textContent = t('wb.cancelled');
+      setWbStatus('wb.cancelled');
     } else {
       wbSwap(wb.selected, pos);
     }
@@ -1342,7 +1367,7 @@
     if (e.key === 'Escape' && wb.selected !== null) {
       wb.selected = null;
       renderWorkbench(pos);
-      $('#wb-status').textContent = t('wb.cancelled');
+      setWbStatus('wb.cancelled');
       return;
     }
     const delta = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
@@ -1389,10 +1414,69 @@
   }
 
   /* ==========================================================================
+   * Language（日英の切り替え）
+   * ========================================================================== */
+  function readStoredLang() {
+    try {
+      return window.localStorage.getItem(LANG_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  function renderLangButton() {
+    const btn = $('#lang-toggle');
+    btn.textContent = t('lang.button');
+    btn.setAttribute('aria-label', t('lang.label'));
+    btn.lang = state.lang === 'ja' ? 'en' : 'ja';
+  }
+
+  /** 計算はし直さず、表示だけを今の言語で描き直す（鍵なし解読は結果を持っているので描き直すだけ） */
+  function rerenderAll() {
+    renderKey();
+    computeEncrypt();
+    computeDecrypt();
+    computeConvert();
+    computeCompose();
+    const coaChoice = $('#coa-k').value;
+    fillCoaSelect();
+    $('#coa-k').value = coaChoice;
+    renderLabInfo();
+    computeKpa();
+    renderCoaResults();
+    if (state.lab.coaStatus) setCoaStatus(state.lab.coaStatus.key, state.lab.coaStatus.params);
+    const wbMsg = state.lab.wbStatus;
+    renderWorkbench();
+    if (wbMsg) setWbStatus(wbMsg.key, wbMsg.params);
+    $('#keygen-visual').textContent = t(state.editorOpen ? 'editor.close' : 'editor.open');
+    const editorMsg = state.editorStatus;
+    if (editorMsg) setEditorStatus(editorMsg.key, editorMsg.params);
+    showInlineError('#keygen-manual-error', '');
+  }
+
+  function setLanguage(lang, { initial = false } = {}) {
+    state.lang = lang === 'en' ? 'en' : 'ja';
+    I18n.apply(state.lang, UI_EN);
+    document.documentElement.lang = state.lang;
+    renderLangButton();
+    if (!initial) {
+      try {
+        window.localStorage.setItem(LANG_KEY, state.lang);
+      } catch {
+        // 保存できなくても切り替えは続ける
+      }
+      rerenderAll();
+    }
+  }
+
+  $('#lang-toggle').addEventListener('click', () => setLanguage(state.lang === 'ja' ? 'en' : 'ja'));
+
+  /* ==========================================================================
    * Initialization - Default Values
    * ========================================================================== */
   $('#encrypt-input').value = 'ENIGMA IS FUN';
   $('#decrypt-input').value = 'NGEI';
+  setLanguage(I18n.initialLanguage(window.location.search, readStoredLang(), navigator.language), { initial: true });
   const checked = $('input[name="key-direction"]:checked');
   state.direction = checked && checked.value === 'from' ? 'from' : 'to';
   activateTab('keygen');

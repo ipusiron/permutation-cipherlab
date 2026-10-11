@@ -66,6 +66,29 @@ body{
 .app-header{
   padding:24px 16px 8px;
   text-align:center;
+  display:grid;
+  grid-template-columns:minmax(0, 1fr);
+  gap:8px;
+  justify-items:center;
+}
+.header-tools{display:flex; justify-content:center}
+.lang-btn{
+  min-width:64px;
+  min-height:44px;
+  border:1px solid var(--border-strong);
+  border-radius:999px;
+  background:#fff;
+  color:var(--text);
+  font-size:15px;
+  font-weight:600;
+  cursor:pointer;
+}
+.lang-btn:hover{background:var(--primary-ghost)}
+.lang-btn:focus-visible{outline:3px solid var(--focus); outline-offset:2px}
+@media (min-width:769px){
+  .app-header{grid-template-columns:minmax(0, 1fr) auto minmax(0, 1fr)}
+  .header-title{grid-column:2}
+  .header-tools{grid-column:3; justify-self:end; align-self:start}
 }
 .app-header h1{margin:0 0 6px 0; font-size:28px;}
 .subtitle{margin:0; color:var(--muted-strong)}

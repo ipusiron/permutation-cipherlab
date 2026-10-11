@@ -39,7 +39,8 @@ test('インラインのスクリプト・イベント属性・style 属性が�
     assert.ok(!/type="module"/.test(attrs), 'file:// で動かすため module にしない');
   }
   assert.deepEqual(scripts.map(m => m[1].match(/src="([^"]+)"/)[1]),
-    ['js/permutation-core.js', 'js/english-bigrams.js', 'js/solver.js', 'js/messages.js', 'js/wiring.js', 'script.js']);
+    ['js/permutation-core.js', 'js/english-bigrams.js', 'js/solver.js', 'js/messages.js', 'js/i18n-en.js', 'js/i18n.js',
+      'js/wiring.js', 'script.js']);
 });
 
 test('target="_blank" のリンクは rel="noopener noreferrer"', () => {

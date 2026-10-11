@@ -388,6 +388,8 @@ permutation-cipherlab/
 │   └── screenshot3.png      # 復号タブ（埋字を除いた結果と注意）
 ├── js/                      # 計算部と画面の部品
 │   ├── english-bigrams.js   # 英語の2文字統計（鍵なし解読の採点。tools/build-bigrams.pyで生成）
+│   ├── i18n-en.js           # 画面の英語（index.htmlの日本語の文字列との対応表）
+│   ├── i18n.js              # 日英の切り替え（原文を控えて入れ替える）
 │   ├── messages.js          # JavaScriptが出す文言の辞書
 │   ├── permutation-core.js  # 鍵の検証・向き・暗号化・復号・順列の性質・変換・既知平文（DOMに依存しない）
 │   ├── solver.js            # 鍵なし解読（多重アナグラム。DOMに依存しない）
@@ -398,6 +400,7 @@ permutation-cipherlab/
 │   ├── core2.test.js        # 順列の性質・ほかの転置式暗号からの変換・既知平文
 │   ├── format.test.js       # 行の長さ・改行・見えない文字
 │   ├── html.test.js         # CSP・ARIA・インライン属性の静的検証
+│   ├── i18n.test.js         # 日英の文言と画面の英語の対応
 │   ├── messages.test.js     # 文言の辞書と画面のキーの対応
 │   ├── readme.test.js       # READMEの例・表・構成の検証
 │   └── solver.test.js       # 鍵なし解読と統計の表

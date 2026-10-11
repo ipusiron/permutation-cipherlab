@@ -26,11 +26,16 @@
 </head>
 <body>
   <header class="app-header">
-    <h1>Permutation CipherLab - 転置式暗号ツール</h1>
-    <p class="subtitle">任意の転置パターンで文字列を並び替える「転置式暗号」をビジュアルで理解するためのツール</p>
+    <div class="header-title">
+      <h1>Permutation CipherLab - 転置式暗号ツール</h1>
+      <p class="subtitle">任意の転置パターンで文字列を並び替える「転置式暗号」をビジュアルで理解するためのツール</p>
+    </div>
+    <div class="header-tools" data-i18n-skip>
+      <button type="button" class="lang-btn" id="lang-toggle" lang="en" aria-label="英語で表示する">EN</button>
+    </div>
   </header>
 
-  <noscript><p class="noscript">このツールにはJavaScriptが必要です。</p></noscript>
+  <noscript><p class="noscript">このツールにはJavaScriptが必要です。JavaScript is required to use this tool.</p></noscript>
 
   <nav class="tabs" role="tablist" aria-label="機能の切り替え">
     <button type="button" class="tab active" id="tab-keygen" data-tab="keygen" role="tab" aria-selected="true" aria-controls="panel-keygen">鍵生成</button>
@@ -546,6 +551,7 @@
           </p>
           <div class="example-box">
             <h4>具体例：パターン3-1-4-2</h4>
+            <div class="table-wrap">
             <table class="example-table">
               <tr>
                 <th>元の位置</th>
@@ -576,6 +582,7 @@
                 <td>I</td>
               </tr>
             </table>
+            </div>
             <p class="result"><strong>結果：</strong> <code>ENIG</code> → <code>NGEI</code></p>
           </div>
           </details>
@@ -630,8 +637,8 @@
             <tbody>
               <tr>
                 <td><strong>変換対象</strong></td>
-                <td>文字の<strong>位置</strong></td>
-                <td>文字<strong>そのもの</strong></td>
+                <td><strong>文字の位置</strong></td>
+                <td><strong>文字そのもの</strong></td>
               </tr>
               <tr>
                 <td><strong>頻度分布</strong></td>
@@ -754,6 +761,8 @@
   <script src="js/english-bigrams.js"></script>
   <script src="js/solver.js"></script>
   <script src="js/messages.js"></script>
+  <script src="js/i18n-en.js"></script>
+  <script src="js/i18n.js"></script>
   <script src="js/wiring.js"></script>
   <script src="script.js"></script>
 </body>

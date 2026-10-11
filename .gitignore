@@ -39,3 +39,5 @@ secrets/
 # User data (if any)
 uploads/
 user_data/
+# 鍵なし解読の統計を作るための本文（tools/build-bigrams.py。ダウンロードして置く）
+tools/corpus/

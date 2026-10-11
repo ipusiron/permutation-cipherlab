@@ -11,6 +11,8 @@ Permutation CipherLabは、ブラウザーの中だけで動く静的なWebア�
 - 乱数：鍵の生成に`crypto.getRandomValues`を使い、剰余の偏りを棄却して除く。使えない環境ではランダム生成を止め、`Math.random`に切り替えない。
 - 保存データ：`localStorage`から読み込む鍵は形を検証し、壊れた項目は読み飛ばす。
 - リンク：外部リンクに`rel="noopener noreferrer"`を付け、ページの`referrer`は`no-referrer`にする。
+- 受け取り：ほかのツールから`#text=`（従来の`?text=`も）で暗号文を受け取ると、入力欄に入れたあと`history.replaceState`でURLから消す。10,000文字を超える分は切る。`#`より後ろはサーバーへ送られない。ブラウザーの閲覧履歴には最初のURLが残る。
+- 言語の選択：`localStorage`の`pcl_lang`に`ja`か`en`だけを保存する。
 
 ## `<meta>`では設定できないヘッダー
 

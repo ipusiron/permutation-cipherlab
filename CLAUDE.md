@@ -29,11 +29,14 @@ GitHub Actions (`.github/workflows/test.yml`) runs `npm test` on push and pull r
 
 | File | Role |
 |---|---|
-| `js/permutation-core.js` | Pure logic (`PermutationCore`, also `module.exports`). No DOM. Returns errors/notes as `{ key, params }` |
-| `js/messages.js` | UI strings (`PclMessages.format(lang, key, params)`). Japanese only for now |
+| `js/permutation-core.js` | Pure logic (`PermutationCore`, also `module.exports`). No DOM. Returns errors/notes as `{ key, params }`. Also cycles/order/matrix, conversions from rail fence, scytale, columnar, spiral, reverse, and known-plaintext counting |
+| `js/solver.js` | Ciphertext-only solver (`PclSolver`): exact bitmask DP over column orders with bigram scores, k ≤ 16; unknown k ranked by score − 2·log10(k!) |
+| `js/english-bigrams.js` | Generated bigram tables (28 symbols with space, 26 letters only). Regenerate with `python tools/build-bigrams.py` (corpus in `tools/corpus/`, git-ignored) |
+| `js/messages.js` | JS strings in `ja` and `en` (`PclMessages.format(lang, key, params)`) |
+| `js/i18n.js`, `js/i18n-en.js` | Static HTML stays Japanese; `collect()` records Japanese text nodes/attributes before rendering and `apply('en', UI_EN)` swaps them using the source-text table |
 | `js/wiring.js` | SVG wiring diagram (`PclWiring.render`). Attributes and classes only (no `style` attributes) |
 | `script.js` | DOM controller. Single `state` object; every input change recomputes and re-renders |
-| `index.html` | Tabs: 鍵生成 / 暗号化 / 復号 / 座学 |
+| `index.html` | Tabs: 鍵生成 / 暗号化 / 復号 / 変換 / 解読ラボ / 座学 |
 | `style.css` | Design tokens in `:root` (`--primary-strong`, `--muted-strong`, `--wire`, …) |
 
 ### Key conventions
@@ -50,11 +53,15 @@ GitHub Actions (`.github/workflows/test.yml`) runs `npm test` on push and pull r
 - Random keys use `crypto.getRandomValues` with rejection sampling; there is no `Math.random` fallback.
 - The step-by-step view keeps only `state.enc.step` (number of wires drawn); the picture is derived from `partialBlock()`. Any input/key/block change stops autoplay and shows all wires.
 - The key editor registers its listeners once on the `<ol>` (event delegation).
+- Status lines (lab, workbench, editor) are stored as `{ key, params }` so `rerenderAll()` can redraw them after a language switch without recomputing.
+- The lab receives `#text=` (or `?text=`), truncates to 10,000 code points, removes it from the URL with `history.replaceState`, and never auto-runs the solver.
+- README success-rate tables must equal `tools/eval-solver-result.json` (regenerate with `node tools/eval-solver.js 30` after placing the corpus).
 
 ## Constraints
 
 - Keep CSP-compatible: no inline scripts, no `on*` attributes, no `style` attributes in HTML. Use `hidden`, classes, or CSSOM.
-- `script.js` must not contain Japanese string literals; add strings to `js/messages.js` (checked by `test/messages.test.js`).
+- `script.js` must not contain Japanese string literals; add strings to `js/messages.js` in both `ja` and `en` (checked by `test/messages.test.js` and `test/i18n.test.js`).
+- When you change Japanese text in `index.html`, update `js/i18n-en.js` (the test lists missing and unused entries).
 - README examples are recomputed by `test/readme.test.js`. Change the logic and the README tables together.
 - Do not add npm dependencies, CDNs, or a bundler.
 

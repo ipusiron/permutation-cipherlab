@@ -6,7 +6,7 @@ const { MESSAGES, format } = require('../js/messages.js');
 
 const root = path.join(__dirname, '..');
 const script = fs.readFileSync(path.join(root, 'script.js'), 'utf8');
-const core = fs.readFileSync(path.join(root, 'js/permutation-core.js'), 'utf8');
+const core = ['js/permutation-core.js', 'js/solver.js'].map(f => fs.readFileSync(path.join(root, f), 'utf8')).join(String.fromCharCode(10));
 
 // 日本語（ひらがな・カタカナ・漢字・全角の記号）の判定はコードポイントの範囲で行う
 const JA_RANGES = [[0x3000, 0x30ff], [0x3400, 0x4dbf], [0x4e00, 0x9fff], [0xff00, 0xffef]];
@@ -42,4 +42,12 @@ test('辞書: 空の値がなく、差し込みが埋まる', () => {
   assert.equal(format('ja', 'step.status', { n: 4, k: 2 }), '4本中2本');
   // 知らないキーはそのまま返す（画面が止まらない）
   assert.equal(format('ja', 'no.such.key'), 'no.such.key');
+});
+
+test('組み立てて引くキー: 変換の方式ごとの説明がある', () => {
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const select = html.match(/<select id="conv-method">([\s\S]*?)<\/select>/)[1];
+  const values = [...select.matchAll(/<option value="([^"]+)"/g)].map(m => m[1]);
+  assert.equal(values.length, 6);
+  for (const v of values) assert.ok(MESSAGES.ja[`conv.help.${v}`], v);
 });

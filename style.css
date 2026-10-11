@@ -1080,3 +1080,38 @@ select:focus-visible{outline:3px solid var(--focus); outline-offset:2px}
   .form-grid{grid-template-columns:minmax(0, 1fr)}
 }
 
+
+/* ============================================================================
+ * Lab（既知平文・鍵なし解読・作業台）
+ * ============================================================================ */
+.lab-grid{margin:16px 0}
+.field-label{display:block; color:var(--muted-strong); font-size:14px; margin:8px 0 4px}
+.result-box p{margin:8px 0; overflow-wrap:anywhere}
+.result-list{list-style:none; padding:0; margin:8px 0}
+.result-list li{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  padding:6px 0;
+  border-bottom:1px solid var(--border);
+}
+#coa-table td:nth-child(3), #coa-table td:nth-child(4){font-family:'Courier New', monospace; overflow-wrap:anywhere}
+#coa-table td:last-child{display:flex; flex-direction:column; gap:6px}
+#coa-table td:last-child .btn{white-space:nowrap}
+.wb-grid{border-collapse:collapse; font-family:'Courier New', monospace; font-size:16px}
+.wb-grid th{padding:4px; background:#f8fafc}
+.wb-grid td{border:1px solid var(--border); min-width:44px; height:32px; text-align:center; font-weight:bold}
+.wb-grid tr.tail td{color:var(--muted-strong); background:#f8fafc; font-weight:normal}
+.pair-list{list-style:none; display:flex; flex-wrap:wrap; gap:6px; padding:0; margin:4px 0 8px}
+.pair-list li{
+  font-family:'Courier New', monospace;
+  font-size:14px;
+  border-radius:999px;
+  padding:4px 10px;
+  border:1px solid var(--border);
+}
+.pair-list li.good{background:#ecfdf5; border-color:#047857; color:#065f46}
+.pair-list li.mid{background:#f8fafc; color:var(--muted-strong)}
+.pair-list li.bad{background:#fef2f2; border-color:#b91c1c; color:#991b1b}

@@ -15,6 +15,7 @@
   'use strict';
 
   const Core = window.PermutationCore;
+  const Solver = window.PclSolver;
   const Wiring = window.PclWiring;
   const Messages = window.PclMessages;
 
@@ -40,6 +41,12 @@
     editorSelected: null,
     conv: null,               // 変換タブで作った鍵
     comp: null,               // 合成した鍵
+    lab: {
+      kpaKey: null,           // 既知平文で求めた鍵
+      coaToken: 0,            // 鍵なし解読の実行を区別する番号（入力が変わったら古い実行を捨てる）
+      coaResults: [],
+      wb: { k: 4, order: [0, 1, 2, 3], selected: null },
+    },
     storageOk: true,
   };
 
@@ -992,6 +999,396 @@
   });
 
   /* ==========================================================================
+   * LAB TAB（既知平文・鍵なし解読・作業台）
+   * ========================================================================== */
+  const WB_MAX_ROWS = 30;
+  const PAIR_GOOD = -1.2;     // 作業台の色分け（正しい並びの1行あたりの平均はおよそ -1.2 以上）
+  const PAIR_BAD = -1.45;     // でたらめな並びの中央値はおよそ -1.5〜-1.7
+
+  const labText = () => $('#lab-cipher').value;
+  const labUnits = () => Core.toUnits(labText());
+
+  function renderLabInfo() {
+    const n = labUnits().length;
+    const info = $('#lab-cipher-info');
+    if (!n) { info.textContent = t('lab.empty'); return; }
+    if (n > Solver.MAX_INPUT) { info.textContent = t('lab.tooLong', { max: Solver.MAX_INPUT, n }); return; }
+    const model = Solver.encode(labUnits()).model;
+    info.textContent = t('lab.info', { n, model: t(`lab.model.${model}`) });
+  }
+
+  function onLabInput() {
+    renderLabInfo();
+    if (state.lab.coaResults.length || $('#coa-status').textContent) {
+      state.lab.coaToken++;
+      state.lab.coaResults = [];
+      $('#coa-wrap').hidden = true;
+      $('#coa-status').textContent = t('coa.stale');
+      $('#coa-run').disabled = false;
+    }
+    scheduleKpa();
+    resetWorkbench();
+  }
+
+  /* ---------- 既知平文 ---------- */
+  let kpaTimer = null;
+  function scheduleKpa() {
+    clearTimeout(kpaTimer);
+    kpaTimer = setTimeout(computeKpa, 150);
+  }
+
+  function kpaMessage(text) {
+    const box = $('#kpa-result');
+    box.replaceChildren();
+    const p = document.createElement('p');
+    p.textContent = text;
+    box.append(p);
+    return box;
+  }
+
+  const countText = (count) => (count > Number.MAX_SAFE_INTEGER ? count.toExponential(2) : count.toLocaleString('en-US'));
+
+  function computeKpa() {
+    state.lab.kpaKey = null;
+    $('#kpa-use').disabled = true;
+    $('#kpa-table-wrap').hidden = true;
+    const plain = $('#kpa-plain').value;
+    const cipher = labText();
+    $('#kpa-n').disabled = $('#kpa-auto').checked;
+    if (!Core.toUnits(plain).length || !Core.toUnits(cipher).length) {
+      kpaMessage(t('kpa.needInput'));
+      return;
+    }
+    if ($('#kpa-auto').checked) {
+      const scan = Core.knownPlaintextScan(plain, cipher, Core.MAX_LENGTH);
+      if (!scan.length) { kpaMessage(t('kpa.scanNone', { max: Core.MAX_LENGTH })); return; }
+      const box = kpaMessage(t('kpa.scanHead'));
+      const ul = document.createElement('ul');
+      ul.className = 'result-list';
+      for (const item of scan) {
+        const li = document.createElement('li');
+        const label = item.count === null ? t('kpa.scanUncounted', { n: item.n })
+          : item.count === 1 ? t('kpa.scanOne', { n: item.n }) : t('kpa.scanCount', { n: item.n, count: countText(item.count) });
+        const span = document.createElement('span');
+        span.textContent = label;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn ghost btn-sm';
+        btn.textContent = t('kpa.pick', { n: item.n });
+        btn.addEventListener('click', () => {
+          $('#kpa-auto').checked = false;
+          $('#kpa-n').value = String(item.n);
+          computeKpa();
+        });
+        li.append(span, btn);
+        ul.append(li);
+      }
+      box.append(ul);
+      return;
+    }
+    const n = readInt('#kpa-n');
+    if (!Number.isInteger(n) || n < Core.MIN_LENGTH || n > Core.MAX_LENGTH) {
+      kpaMessage(t('key.length', { min: Core.MIN_LENGTH, max: Core.MAX_LENGTH }));
+      return;
+    }
+    const r = Core.knownPlaintext(plain, cipher, n);
+    if (!r.ok) { kpaMessage(describe(r.error)); return; }
+    if (!r.consistent) { kpaMessage(t('kpa.inconsistent', { n })); return; }
+    const key = keyText(r.key);
+    if (r.count === null) kpaMessage(t('kpa.uncounted', { key }));
+    else if (r.count === 1) kpaMessage(t('kpa.unique', { key, blocks: r.blocks }));
+    else {
+      const box = kpaMessage(t('kpa.many', { count: countText(r.count), blocks: r.blocks }));
+      const p = document.createElement('p');
+      p.textContent = t('kpa.example', { key });
+      box.append(p);
+    }
+    state.lab.kpaKey = r.key;
+    $('#kpa-use').disabled = false;
+    const plainUnits = Core.toUnits(plain);
+    fillTable($('#kpa-table tbody'), r.candidates.map((list, i) => [String(i + 1), shown(plainUnits[i]), list.join(', ')]));
+    $('#kpa-table-wrap').hidden = false;
+  }
+
+  for (const sel of ['#kpa-plain', '#kpa-n']) $(sel).addEventListener('input', scheduleKpa);
+  $('#kpa-auto').addEventListener('change', computeKpa);
+  $('#kpa-use').addEventListener('click', () => {
+    if (!state.lab.kpaKey) return;
+    setKey(state.lab.kpaKey);
+    showToast(t('kpa.used', { n: state.lab.kpaKey.length }), 'success');
+  });
+
+  /* ---------- 鍵なし解読 ---------- */
+  function fillCoaSelect() {
+    const sel = $('#coa-k');
+    sel.replaceChildren();
+    const auto = document.createElement('option');
+    auto.value = 'auto';
+    auto.textContent = t('coa.auto');
+    sel.append(auto);
+    for (let k = Solver.MIN_K; k <= Solver.MAX_K; k++) {
+      const o = document.createElement('option');
+      o.value = String(k);
+      o.textContent = String(k);
+      sel.append(o);
+    }
+  }
+
+  function renderCoaResults() {
+    const rows = state.lab.coaResults.slice(0, 5);
+    const tbody = $('#coa-table tbody');
+    tbody.replaceChildren();
+    rows.forEach((r, i) => {
+      const tr = document.createElement('tr');
+      const head = r.plain.slice(0, 48) + (r.plain.length > 48 ? '…' : '');
+      const same = i > 0 && r.plain === rows[0].plain ? t('coa.samePlain') : '';
+      const cells = [String(i + 1), String(r.k), keyText(r.key), head + same];
+      for (const v of cells) {
+        const td = document.createElement('td');
+        td.textContent = v;
+        tr.append(td);
+      }
+      const ops = document.createElement('td');
+      const use = document.createElement('button');
+      use.type = 'button';
+      use.className = 'btn ghost btn-sm';
+      use.textContent = t('coa.use');
+      use.addEventListener('click', () => {
+        setKey(r.key);
+        showToast(t('coa.used', { n: r.key.length }), 'success');
+      });
+      const open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'btn ghost btn-sm';
+      open.textContent = t('coa.open');
+      open.addEventListener('click', () => {
+        $('#wb-k').value = String(r.k);
+        state.lab.wb = { k: r.k, order: r.key.map(x => x - 1), selected: null };
+        renderWorkbench();
+        showToast(t('coa.opened', { k: r.k }), 'success');
+        $('#wb-grid').scrollIntoView({ block: 'nearest' });
+      });
+      ops.append(use, open);
+      tr.append(ops);
+      tbody.append(tr);
+    });
+    $('#coa-wrap').hidden = !rows.length;
+  }
+
+  function runCoa() {
+    const text = labText();
+    const n = labUnits().length;
+    if (!n) { $('#coa-status').textContent = t('lab.empty'); return; }
+    if (n > Solver.MAX_INPUT) { $('#coa-status').textContent = t('lab.tooLong', { max: Solver.MAX_INPUT, n }); return; }
+    const choice = $('#coa-k').value;
+    const token = ++state.lab.coaToken;
+    const started = performance.now();
+    state.lab.coaResults = [];
+    $('#coa-wrap').hidden = true;
+    if (choice !== 'auto') {
+      const k = Number(choice);
+      const r = Solver.solveLength(text, k);
+      if (!r.ok) { $('#coa-status').textContent = describe(r.error); return; }
+      state.lab.coaResults = [r];
+      $('#coa-status').textContent = t('coa.doneFixed', { k, ms: Math.round(performance.now() - started) });
+      renderCoaResults();
+      return;
+    }
+    const hi = Math.min(Solver.MAX_K, Math.floor(n / 2));
+    if (hi < Solver.MIN_K) { $('#coa-status').textContent = t('solve.tooShort', { k: Solver.MIN_K }); return; }
+    const results = [];
+    $('#coa-run').disabled = true;
+    let k = Solver.MIN_K;
+    const step = () => {
+      if (token !== state.lab.coaToken) return;
+      $('#coa-status').textContent = t('coa.running', { k, hi });
+      setTimeout(() => {
+        if (token !== state.lab.coaToken) return;
+        const r = Solver.solveLength(text, k);
+        if (r.ok) results.push(r);
+        k++;
+        if (k <= hi) { step(); return; }
+        results.sort((x, y) => y.rank - x.rank);
+        state.lab.coaResults = results;
+        $('#coa-status').textContent = t('coa.done', { count: results.length, ms: Math.round(performance.now() - started) });
+        $('#coa-run').disabled = false;
+        renderCoaResults();
+      }, 0);
+    };
+    step();
+  }
+
+  $('#coa-run').addEventListener('click', runCoa);
+
+  /* ---------- 作業台 ---------- */
+  function resetWorkbench(k = readInt('#wb-k')) {
+    const kk = Number.isInteger(k) ? k : 4;
+    state.lab.wb = { k: kk, order: Array.from({ length: kk }, (_, i) => i), selected: null };
+    renderWorkbench();
+  }
+
+  function renderWorkbench(focusPos = null) {
+    const wb = state.lab.wb;
+    const units = labUnits();
+    const grid = $('#wb-grid');
+    const status = $('#wb-status');
+    grid.replaceChildren();
+    $('#wb-pairs').replaceChildren();
+    $('#wb-plain').textContent = '';
+    $('#wb-more').hidden = true;
+    $('#wb-use').disabled = true;
+    if (!Number.isInteger(wb.k) || wb.k < Core.MIN_LENGTH || wb.k > Core.MAX_LENGTH) {
+      status.textContent = t('wb.range', { max: Core.MAX_LENGTH });
+      return;
+    }
+    const rows = Math.floor(units.length / wb.k);
+    if (rows < 2) {
+      status.textContent = units.length ? t('wb.tooShort', { k: wb.k }) : t('lab.empty');
+      return;
+    }
+    const tail = units.slice(rows * wb.k);
+    status.textContent = tail.length ? t('wb.status', { rows, k: wb.k, tail: tail.length }) : t('wb.statusFull', { rows, k: wb.k });
+
+    const thead = document.createElement('thead');
+    const hr = document.createElement('tr');
+    wb.order.forEach((col, pos) => {
+      const th = document.createElement('th');
+      th.scope = 'col';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chip-btn wb-col';
+      btn.textContent = String(col + 1);
+      btn.dataset.pos = String(pos);
+      btn.setAttribute('aria-pressed', String(wb.selected === pos));
+      btn.setAttribute('aria-label', t('wb.colLabel', { col: col + 1, pos: pos + 1 }));
+      th.append(btn);
+      hr.append(th);
+    });
+    thead.append(hr);
+    const tbody = document.createElement('tbody');
+    const shownRows = Math.min(rows, WB_MAX_ROWS);
+    for (let r = 0; r < shownRows; r++) {
+      const tr = document.createElement('tr');
+      for (const col of wb.order) {
+        const td = document.createElement('td');
+        td.textContent = shown(units[r * wb.k + col]);
+        tr.append(td);
+      }
+      tbody.append(tr);
+    }
+    if (tail.length && rows <= WB_MAX_ROWS) {
+      const tr = document.createElement('tr');
+      tr.className = 'tail';
+      tail.forEach((ch) => {
+        const td = document.createElement('td');
+        td.textContent = shown(ch);
+        tr.append(td);
+      });
+      tbody.append(tr);
+    }
+    grid.append(thead, tbody);
+    if (rows > WB_MAX_ROWS) {
+      $('#wb-more').textContent = t('wb.more', { shown: WB_MAX_ROWS, rows });
+      $('#wb-more').hidden = false;
+    }
+    const adj = Solver.adjacency(labText(), wb.k, wb.order);
+    adj.pairs.forEach((score, i) => {
+      const li = document.createElement('li');
+      li.className = score >= PAIR_GOOD ? 'good' : score < PAIR_BAD ? 'bad' : 'mid';
+      li.textContent = t('wb.pair', { a: wb.order[i] + 1, b: wb.order[i + 1] + 1, score: score.toFixed(2) });
+      $('#wb-pairs').append(li);
+    });
+    let plain = '';
+    for (let r = 0; r < rows; r++) for (const col of wb.order) plain += units[r * wb.k + col];
+    $('#wb-plain').textContent = plain + tail.join('');
+    $('#wb-use').disabled = false;
+    if (focusPos !== null) grid.querySelector(`[data-pos="${focusPos}"]`)?.focus();
+  }
+
+  function wbSwap(a, b, select = null) {
+    const wb = state.lab.wb;
+    [wb.order[a], wb.order[b]] = [wb.order[b], wb.order[a]];
+    wb.selected = select;
+    renderWorkbench(b);
+    $('#wb-status').textContent = t('wb.swapped', { a: wb.order[b] + 1, b: wb.order[a] + 1 });
+  }
+
+  const wbPos = (target) => {
+    const btn = target.closest('.wb-col');
+    return btn ? Number(btn.dataset.pos) : null;
+  };
+
+  $('#wb-grid').addEventListener('click', (e) => {
+    const pos = wbPos(e.target);
+    if (pos === null) return;
+    const wb = state.lab.wb;
+    if (wb.selected === null) {
+      wb.selected = pos;
+      renderWorkbench(pos);
+      $('#wb-status').textContent = t('wb.selected', { col: wb.order[pos] + 1 });
+    } else if (wb.selected === pos) {
+      wb.selected = null;
+      renderWorkbench(pos);
+      $('#wb-status').textContent = t('wb.cancelled');
+    } else {
+      wbSwap(wb.selected, pos);
+    }
+  });
+
+  $('#wb-grid').addEventListener('keydown', (e) => {
+    const pos = wbPos(e.target);
+    if (pos === null) return;
+    const wb = state.lab.wb;
+    if (e.key === 'Escape' && wb.selected !== null) {
+      wb.selected = null;
+      renderWorkbench(pos);
+      $('#wb-status').textContent = t('wb.cancelled');
+      return;
+    }
+    const delta = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+    if (!delta) return;
+    e.preventDefault();
+    const next = pos + delta;
+    if (next < 0 || next >= wb.k) return;
+    if (wb.selected === pos) wbSwap(pos, next, next);
+    else $('#wb-grid').querySelector(`[data-pos="${next}"]`)?.focus();
+  });
+
+  $('#wb-k').addEventListener('input', () => resetWorkbench());
+  $('#wb-reset').addEventListener('click', () => resetWorkbench());
+  $('#wb-use').addEventListener('click', () => {
+    const key = state.lab.wb.order.map(c => c + 1);
+    setKey(key);
+    showToast(t('wb.used', { n: key.length }), 'success');
+  });
+
+  $('#lab-cipher').addEventListener('input', onLabInput);
+  $('#lab-from-encrypt').addEventListener('click', () => {
+    $('#lab-cipher').value = $('#encrypt-output').value;
+    onLabInput();
+    showToast(t('lab.fromEncrypt'), 'success');
+  });
+
+  /** ほかのツールから #text=（または ?text=）で暗号文を受け取り、URL から消す */
+  function readIncoming() {
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    const query = new URLSearchParams(window.location.search);
+    const text = hash.get('text') ?? query.get('text');
+    if (text === null) return;
+    try {
+      window.history.replaceState(null, '', window.location.pathname);
+    } catch {
+      // file:// などで書き換えられなくても、受け取りは続ける
+    }
+    const units = Core.toUnits(text);
+    const cut = units.length > Solver.MAX_INPUT;
+    $('#lab-cipher').value = cut ? units.slice(0, Solver.MAX_INPUT).join('') : text;
+    onLabInput();
+    activateTab('lab');
+    showToast(cut ? t('lab.receivedCut', { max: Solver.MAX_INPUT }) : t('lab.received', { n: units.length }), 'success');
+  }
+
+  /* ==========================================================================
    * Initialization - Default Values
    * ========================================================================== */
   $('#encrypt-input').value = 'ENIGMA IS FUN';
@@ -1002,4 +1399,9 @@
   setKey([3, 1, 4, 2]);
   computeConvert();
   computeCompose();
+  fillCoaSelect();
+  renderLabInfo();
+  computeKpa();
+  resetWorkbench(4);
+  readIncoming();
 })();

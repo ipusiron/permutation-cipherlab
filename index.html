@@ -37,6 +37,7 @@
     <button type="button" class="tab" id="tab-encrypt" data-tab="encrypt" role="tab" aria-selected="false" aria-controls="panel-encrypt" tabindex="-1">暗号化</button>
     <button type="button" class="tab" id="tab-decrypt" data-tab="decrypt" role="tab" aria-selected="false" aria-controls="panel-decrypt" tabindex="-1">復号</button>
     <button type="button" class="tab" id="tab-convert" data-tab="convert" role="tab" aria-selected="false" aria-controls="panel-convert" tabindex="-1">変換</button>
+    <button type="button" class="tab" id="tab-lab" data-tab="lab" role="tab" aria-selected="false" aria-controls="panel-lab" tabindex="-1">解読ラボ</button>
     <button type="button" class="tab" id="tab-study" data-tab="study" role="tab" aria-selected="false" aria-controls="panel-study" tabindex="-1">座学</button>
   </nav>
 
@@ -400,6 +401,97 @@
       </div>
     </section>
 
+    <!-- Lab -->
+    <section class="panel" id="panel-lab" role="tabpanel" aria-labelledby="tab-lab">
+      <div class="card">
+        <h2><label for="lab-cipher">解読ラボ：暗号文</label></h2>
+        <p class="description">
+          鍵を知らずに、暗号文から鍵と平文を探します。どのブロックも同じ鍵で並べ替えている、という弱点を使います。
+        </p>
+        <textarea id="lab-cipher" rows="5" spellcheck="false" placeholder="暗号文を入れます（Cipher Clairvoyanceから渡すこともできます）"></textarea>
+        <div class="actions">
+          <button type="button" class="btn ghost" id="lab-from-encrypt">暗号化タブの暗号文を入れる</button>
+        </div>
+        <p class="hint" id="lab-cipher-info" aria-live="polite"></p>
+      </div>
+
+      <div class="grid lab-grid">
+        <div class="card">
+          <h3>既知平文から鍵を割り出す</h3>
+          <p class="description">平文の一部（暗号文の先頭に対応する部分）がわかっているとき、矛盾しない鍵を探して数えます。</p>
+          <label for="kpa-plain" class="field-label">わかっている平文（先頭から）</label>
+          <textarea id="kpa-plain" rows="3" spellcheck="false" placeholder="例）ATTACK AT DAWN"></textarea>
+          <div class="form-grid">
+            <label for="kpa-n">ブロック長</label>
+            <input id="kpa-n" type="number" min="2" max="64" value="4" inputmode="numeric" />
+          </div>
+          <label class="checkbox">
+            <input id="kpa-auto" type="checkbox" />
+            <span>ブロック長がわからない（2〜64を全部調べる）</span>
+          </label>
+          <div id="kpa-result" class="result-box" aria-live="polite"></div>
+          <div class="table-wrap" id="kpa-table-wrap" hidden>
+            <table id="kpa-table" class="map-table">
+              <caption>平文の各位置が行けそうな暗号文の位置</caption>
+              <thead><tr><th scope="col">平文の位置</th><th scope="col">文字</th><th scope="col">行けそうな暗号文の位置</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="actions">
+            <button type="button" class="btn primary" id="kpa-use" disabled>この鍵を使う</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>鍵なしで解く（英語）</h3>
+          <p class="description">
+            暗号文をブロック長の幅の表にし、英語の2文字のつながりがいちばん自然になる列の並びを探します（多重アナグラム）。
+            英語の文にだけ使えます。短い文や長い鍵では外れることがあります。
+          </p>
+          <div class="form-grid">
+            <label for="coa-k">ブロック長</label>
+            <select id="coa-k"></select>
+          </div>
+          <div class="actions">
+            <button type="button" class="btn primary" id="coa-run">解く</button>
+          </div>
+          <p class="hint" id="coa-status" aria-live="polite"></p>
+          <div class="table-wrap" id="coa-wrap" hidden>
+            <table id="coa-table" class="map-table">
+              <caption>候補（上ほど英語らしい）</caption>
+              <thead><tr><th scope="col">順位</th><th scope="col">ブロック長</th><th scope="col">鍵</th><th scope="col">平文の先頭</th><th scope="col">操作</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>作業台（列を入れ替えて読む）</h3>
+        <p class="description">
+          暗号文をブロック長の幅で縦に並べます。どの行も同じ鍵なので、列を入れ替えると全部の行が一度に読めるようになります。
+          列の見出しを2つ順に選ぶと入れ替わります（キーボードでは見出しを選んでEnterかSpaceを押し、← →で動かします）。
+        </p>
+        <div class="form-grid">
+          <label for="wb-k">ブロック長</label>
+          <input id="wb-k" type="number" min="2" max="64" value="4" inputmode="numeric" />
+        </div>
+        <div class="actions">
+          <button type="button" class="btn ghost" id="wb-reset">元の並びに戻す</button>
+          <button type="button" class="btn primary" id="wb-use">この並びを鍵にする</button>
+        </div>
+        <p class="hint" id="wb-status" aria-live="polite"></p>
+        <div class="table-wrap">
+          <table id="wb-grid" class="wb-grid"></table>
+        </div>
+        <p class="hint" id="wb-more" hidden></p>
+        <p class="key-info">隣り合う列のつながり（1行あたりの平均。0に近いほど英語らしい）：</p>
+        <ul id="wb-pairs" class="pair-list"></ul>
+        <p class="key-info">この並びで読んだ文：</p>
+        <p id="wb-plain" class="repeat-line mono"></p>
+      </div>
+    </section>
+
     <!-- Study -->
     <section class="panel" id="panel-study" role="tabpanel" aria-labelledby="tab-study">
       <div class="card study-content">
@@ -659,6 +751,8 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="js/permutation-core.js"></script>
+  <script src="js/english-bigrams.js"></script>
+  <script src="js/solver.js"></script>
   <script src="js/messages.js"></script>
   <script src="js/wiring.js"></script>
   <script src="script.js"></script>

@@ -39,7 +39,7 @@ test('インラインのスクリプト・イベント属性・style 属性が�
     assert.ok(!/type="module"/.test(attrs), 'file:// で動かすため module にしない');
   }
   assert.deepEqual(scripts.map(m => m[1].match(/src="([^"]+)"/)[1]),
-    ['js/permutation-core.js', 'js/messages.js', 'js/wiring.js', 'script.js']);
+    ['js/permutation-core.js', 'js/english-bigrams.js', 'js/solver.js', 'js/messages.js', 'js/wiring.js', 'script.js']);
 });
 
 test('target="_blank" のリンクは rel="noopener noreferrer"', () => {
@@ -50,7 +50,7 @@ test('target="_blank" のリンクは rel="noopener noreferrer"', () => {
 
 test('タブとパネルの ARIA が対応している', () => {
   const tabs = [...html.matchAll(/<button[^>]*role="tab"[^>]*>/g)].map(m => m[0]);
-  const names = ['keygen', 'encrypt', 'decrypt', 'convert', 'study'];
+  const names = ['keygen', 'encrypt', 'decrypt', 'convert', 'lab', 'study'];
   assert.equal(tabs.length, names.length);
   for (const name of names) {
     const tab = tabs.find(t => t.includes(`id="tab-${name}"`));

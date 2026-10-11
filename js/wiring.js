@@ -57,7 +57,8 @@
    *   links        [[上の位置, 下の位置], …]（0始まり）。配列の順に引く
    *   drawn        引く本数（省略時はすべて）
    *   topTitle, bottomTitle  左端の見出し
-   *   label        図全体の説明（aria-label）
+   *   linkClasses  各線に足すクラス（巡回ごとの色分けなど）
+ *   label        図全体の説明（aria-label）
    */
   function render(svg, opts) {
     const n = opts.n;
@@ -81,11 +82,12 @@
       const cls = ['wire'];
       if (from === to) cls.push('fixed');
       if (opts.drawn !== undefined && k === drawn - 1 && drawn < opts.links.length) cls.push('active');
+      if (opts.linkClasses && opts.linkClasses[k]) cls.push(opts.linkClasses[k]);
       wires.append(el('path', { d: `M ${x1} ${y1} C ${x1} ${ym}, ${x2} ${ym}, ${x2} ${y2}`, class: cls.join(' ') }));
       // 矢じりは三角形で描く（marker は使わない）
       wires.append(el('polygon', {
         points: `${x2 - 5},${y2 - 1} ${x2 + 5},${y2 - 1} ${x2},${BOTTOM_Y}`,
-        class: `tip${cls.includes('active') ? ' active' : ''}`,
+        class: ['tip', ...cls.filter(c => c !== 'wire' && c !== 'fixed')].join(' '),
       }));
     });
     svg.append(wires);

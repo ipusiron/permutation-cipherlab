@@ -43,3 +43,11 @@ test('辞書: 空の値がなく、差し込みが埋まる', () => {
   // 知らないキーはそのまま返す（画面が止まらない）
   assert.equal(format('ja', 'no.such.key'), 'no.such.key');
 });
+
+test('組み立てて引くキー: 変換の方式ごとの説明がある', () => {
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const select = html.match(/<select id="conv-method">([\s\S]*?)<\/select>/)[1];
+  const values = [...select.matchAll(/<option value="([^"]+)"/g)].map(m => m[1]);
+  assert.equal(values.length, 6);
+  for (const v of values) assert.ok(MESSAGES.ja[`conv.help.${v}`], v);
+});

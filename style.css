@@ -37,6 +37,12 @@
   --focus:#0369a1;            /* Focus ring */
   --accent-dark:#047857;      /* Success toast (white text 5.48:1) */
   --danger-strong:#b91c1c;    /* Error text and toast (6.47:1) */
+  --cyc0:#0369a1;             /* Cycle colors (all >= 4.5:1 on white) */
+  --cyc1:#b45309;
+  --cyc2:#047857;
+  --cyc3:#7e22ce;
+  --cyc4:#be123c;
+  --cyc5:#4d7c0f;
 }
 
 /* ============================================================================
@@ -1019,3 +1025,58 @@ fieldset.pad-opts{
     scroll-behavior:auto !important;
   }
 }
+
+/* ============================================================================
+ * Key properties, convert and compose
+ * ============================================================================ */
+.key-props{margin-top:16px}
+.key-props h3{margin:0 0 4px}
+.repeat-line{
+  background:#fff;
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:8px 12px;
+  margin:4px 0 8px;
+  overflow-wrap:anywhere;
+}
+.cyc{font-family:'Courier New', monospace; font-weight:bold; margin-right:6px}
+.cyc.fixed{color:var(--muted-strong); font-weight:normal}
+.cyc.c0{color:var(--cyc0)} .cyc.c1{color:var(--cyc1)} .cyc.c2{color:var(--cyc2)}
+.cyc.c3{color:var(--cyc3)} .cyc.c4{color:var(--cyc4)} .cyc.c5{color:var(--cyc5)}
+.wiring .wire.c0{stroke:var(--cyc0)} .wiring .tip.c0{fill:var(--cyc0)}
+.wiring .wire.c1{stroke:var(--cyc1)} .wiring .tip.c1{fill:var(--cyc1)}
+.wiring .wire.c2{stroke:var(--cyc2)} .wiring .tip.c2{fill:var(--cyc2)}
+.wiring .wire.c3{stroke:var(--cyc3)} .wiring .tip.c3{fill:var(--cyc3)}
+.wiring .wire.c4{stroke:var(--cyc4)} .wiring .tip.c4{fill:var(--cyc4)}
+.wiring .wire.c5{stroke:var(--cyc5)} .wiring .tip.c5{fill:var(--cyc5)}
+.matrix-box summary{cursor:pointer; color:var(--primary-strong); min-height:44px; display:flex; align-items:center}
+.matrix-table{border-collapse:collapse; font-family:'Courier New', monospace; font-size:14px}
+.matrix-table caption{text-align:left; padding:6px 8px; font-family:inherit; color:var(--muted-strong)}
+.matrix-table th, .matrix-table td{border:1px solid var(--border); min-width:28px; height:28px; text-align:center; padding:2px}
+.matrix-table th{background:#f8fafc; color:var(--muted-strong); font-weight:600}
+.matrix-table td{color:var(--muted-strong)}
+.matrix-table td.one{background:var(--primary-ghost); color:var(--primary-strong); font-weight:bold}
+.form-grid{
+  display:grid;
+  grid-template-columns:minmax(0, 12em) minmax(0, 1fr);
+  gap:8px 12px;
+  align-items:center;
+  margin:12px 0;
+}
+.form-grid label{color:var(--muted-strong); font-size:14px}
+.form-grid .form-wide{grid-column:1 / -1; margin:0}
+select{
+  width:100%;
+  min-height:44px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:8px 10px;
+  font-size:16px;
+  background:#fff;
+  color:var(--text);
+}
+select:focus-visible{outline:3px solid var(--focus); outline-offset:2px}
+@media (max-width:480px){
+  .form-grid{grid-template-columns:minmax(0, 1fr)}
+}
+

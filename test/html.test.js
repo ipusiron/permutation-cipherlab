@@ -50,8 +50,9 @@ test('target="_blank" のリンクは rel="noopener noreferrer"', () => {
 
 test('タブとパネルの ARIA が対応している', () => {
   const tabs = [...html.matchAll(/<button[^>]*role="tab"[^>]*>/g)].map(m => m[0]);
-  assert.equal(tabs.length, 4);
-  for (const name of ['keygen', 'encrypt', 'decrypt', 'study']) {
+  const names = ['keygen', 'encrypt', 'decrypt', 'convert', 'study'];
+  assert.equal(tabs.length, names.length);
+  for (const name of names) {
     const tab = tabs.find(t => t.includes(`id="tab-${name}"`));
     assert.ok(tab, name);
     assert.match(tab, new RegExp(`aria-controls="panel-${name}"`));

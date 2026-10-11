@@ -38,6 +38,8 @@
     dec: { result: null, block: 0 },
     editorOpen: false,
     editorSelected: null,
+    conv: null,               // 変換タブで作った鍵
+    comp: null,               // 合成した鍵
     storageOk: true,
   };
 
@@ -155,10 +157,136 @@
     Wiring.render($('#key-wiring'), {
       n,
       links,
+      linkClasses: cycleClasses(perm),
       label: n <= 16 ? t('wiring.keyLabel', { list: pairs }) : t('wiring.keyLabelLong', { n }),
     });
+    renderProps();
     if (state.editorOpen) renderEditor();
     renderSaved();
+  }
+
+  /* ==========================================================================
+   * Key Properties（巡回表記・位数・くり返し・置換行列）
+   * ========================================================================== */
+  // 試す文の既定（Base64 の並び。長さ64まで1文字ずつ違う）
+  const SAMPLE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const CYCLE_COLORS = 6;
+
+  /** 線ごとの色のクラス（長さ2以上の巡回に c0〜c5、動かない位置は空） */
+  function cycleClasses(perm) {
+    const classes = new Array(perm.length).fill('');
+    Core.cycles(perm).filter(c => c.length > 1).forEach((cyc, k) => {
+      for (const pos of cyc) classes[pos - 1] = `c${k % CYCLE_COLORS}`;
+    });
+    return classes;
+  }
+
+  /** n! を「24」や「1.26×10^89」（およその値）の形にする */
+  function factorialText(n) {
+    let f = 1n;
+    for (let k = 2n; k <= BigInt(n); k++) f *= k;
+    const digits = f.toString();
+    if (digits.length <= 15) return { text: Number(f).toLocaleString('en-US'), approx: false };
+    return { text: `${digits[0]}.${digits.slice(1, 3)}×10^${digits.length - 1}`, approx: true };
+  }
+
+  function renderProps() {
+    const perm = state.key;
+    const n = perm.length;
+    const cycDd = $('#prop-cycles');
+    cycDd.replaceChildren();
+    const all = Core.cycles(perm);
+    const moving = all.filter(c => c.length > 1);
+    if (!moving.length) {
+      cycDd.textContent = t('prop.identity');
+    } else {
+      moving.forEach((cyc, k) => {
+        const span = document.createElement('span');
+        span.className = `cyc c${k % CYCLE_COLORS}`;
+        span.textContent = `(${cyc.join(' ')})`;
+        cycDd.append(span);
+      });
+      for (const cyc of all.filter(c => c.length === 1)) {
+        const span = document.createElement('span');
+        span.className = 'cyc fixed';
+        span.textContent = `(${cyc[0]})`;
+        cycDd.append(span);
+      }
+    }
+    $('#prop-order').textContent = t('prop.order', { n: Core.order(perm) });
+    const fixed = Core.fixedPoints(perm);
+    $('#prop-fixed').textContent = fixed.length ? t('prop.fixedList', { list: fixed.join(', '), count: fixed.length }) : t('prop.none');
+    $('#prop-involution').textContent = t(Core.isInvolution(perm) ? 'prop.yes' : 'prop.no');
+    const fact = factorialText(n);
+    $('#prop-keyspace').textContent = t(fact.approx ? 'prop.keyspaceApprox' : 'prop.keyspace',
+      { n, count: fact.text, bits: Core.log2Factorial(n).toFixed(1) });
+    renderRepeat();
+    renderMatrix();
+  }
+
+  /** 暗号化タブの平文の先頭ブロック（足りなければ A, B, C…）に、同じ鍵をくり返しかける */
+  function renderRepeat() {
+    const perm = state.key;
+    const n = perm.length;
+    const units = Core.toUnits($('#encrypt-input').value);
+    const start = units.length >= n ? units.slice(0, n) : Array.from(SAMPLE.slice(0, n));
+    const show = (u) => u.map(ch => Wiring.displayChar(ch).text).join('');
+    const ord = Core.order(perm);
+    const seq = [show(start)];
+    let cur = start;
+    const steps = Math.min(ord, 8);
+    for (let k = 0; k < steps; k++) {
+      cur = Core.permuteBlock(cur, perm);
+      seq.push(show(cur));
+    }
+    const key = ord <= 8 ? 'prop.repeat' : 'prop.repeatLong';
+    $('#prop-repeat').textContent = t(key, { seq: seq.join(' → '), order: ord });
+  }
+
+  function renderMatrix() {
+    const perm = state.key;
+    const n = perm.length;
+    const table = $('#prop-matrix');
+    const note = $('#prop-matrix-note');
+    table.replaceChildren();
+    if (n > 16) {
+      note.textContent = t('prop.matrixTooBig', { n });
+      note.hidden = false;
+      table.hidden = true;
+      return;
+    }
+    note.hidden = true;
+    table.hidden = false;
+    const caption = document.createElement('caption');
+    caption.textContent = t('prop.matrixCaption', { n });
+    table.append(caption);
+    const m = Core.permutationMatrix(perm);
+    const head = document.createElement('tr');
+    head.append(document.createElement('th'));
+    for (let i = 0; i < n; i++) {
+      const th = document.createElement('th');
+      th.scope = 'col';
+      th.textContent = String(i + 1);
+      head.append(th);
+    }
+    const thead = document.createElement('thead');
+    thead.append(head);
+    const tbody = document.createElement('tbody');
+    m.forEach((row, j) => {
+      const tr = document.createElement('tr');
+      const th = document.createElement('th');
+      th.scope = 'row';
+      th.textContent = String(j + 1);
+      tr.append(th);
+      for (const v of row) {
+        const td = document.createElement('td');
+        td.textContent = String(v);
+        if (v) td.className = 'one';
+        tr.append(td);
+      }
+      tbody.append(tr);
+    });
+    table.append(thead, tbody);
   }
 
   /* ==========================================================================
@@ -191,8 +319,14 @@
       const parsed = Core.parseKey(manual.value, before);
       if (parsed.ok) manual.value = Core.formatKey(parsed.perm, state.direction);
       showInlineError('#keygen-manual-error', '');
+      for (const sel of ['#comp-a', '#comp-b']) {
+        const r = Core.parseKey($(sel).value, before);
+        if (r.ok) $(sel).value = Core.formatKey(r.perm, state.direction);
+      }
       state.editorSelected = null;
       renderKey();
+      computeConvert();
+      computeCompose();
     });
   }
 
@@ -470,6 +604,7 @@
     const total = state.enc.result ? state.enc.result.blocks.length : 0;
     state.enc.block = Math.min(state.enc.block, Math.max(0, total - 1));
     renderEncryptBlock();
+    renderRepeat();
   }
 
   function computeDecrypt() {
@@ -734,6 +869,129 @@
   });
 
   /* ==========================================================================
+   * CONVERT TAB（ほかの転置式暗号を鍵にする・2つの鍵の合成）
+   * ========================================================================== */
+  const CONV_FIELDS = {
+    'rail-sequential': ['length', 'rails'],
+    'rail-zigzag': ['length', 'rails'],
+    scytale: ['length', 'rows'],
+    columnar: ['length', 'keyword'],
+    spiral: ['rows', 'cols'],
+    reverse: ['length'],
+  };
+  const readInt = (sel) => Number.parseInt($(sel).value, 10);
+
+  /** 試す文の n 文字。空欄なら A, B, C…（Base64 の並び） */
+  function sampleUnits(n, text) {
+    const units = Core.toUnits(text);
+    if (!units.length) return { ok: true, units: Array.from(SAMPLE.slice(0, n)) };
+    if (units.length < n) return { ok: false, error: { key: 'conv.sampleShort', params: { n } } };
+    return { ok: true, units: units.slice(0, n) };
+  }
+
+  function convertPerm(method) {
+    const L = readInt('#conv-length');
+    switch (method) {
+      case 'rail-sequential': return Core.railFence(L, readInt('#conv-rails'), 'sequential');
+      case 'rail-zigzag': return Core.railFence(L, readInt('#conv-rails'), 'zigzag');
+      case 'scytale': return Core.scytale(L, readInt('#conv-rows'));
+      case 'columnar': {
+        const ranks = Core.columnarRanks($('#conv-keyword').value);
+        return ranks.ok ? Core.columnar(L, ranks.ranks) : ranks;
+      }
+      case 'spiral': return Core.spiral(readInt('#conv-rows'), readInt('#conv-cols'));
+      default: return Core.reverse(L);
+    }
+  }
+
+  function clearConvert(msg) {
+    state.conv = null;
+    showInlineError('#conv-error', msg);
+    for (const sel of ['#conv-key-to', '#conv-key-from', '#conv-output']) $(sel).textContent = t('key.none');
+    $('#conv-wiring').replaceChildren();
+    $('#conv-use').disabled = true;
+  }
+
+  function computeConvert() {
+    const method = $('#conv-method').value;
+    const fields = CONV_FIELDS[method] || [];
+    for (const el of $$('[data-conv]')) el.hidden = !fields.includes(el.dataset.conv);
+    $('#conv-help').textContent = t(`conv.help.${method}`);
+    const res = convertPerm(method);
+    if (!res.ok) { clearConvert(describe(res.error)); return; }
+    const perm = res.perm;
+    const sample = sampleUnits(perm.length, $('#conv-sample').value);
+    if (!sample.ok) { clearConvert(describe(sample.error)); return; }
+    showInlineError('#conv-error', '');
+    state.conv = perm;
+    $('#conv-key-to').textContent = Core.formatKey(perm, 'to');
+    $('#conv-key-from').textContent = Core.formatKey(perm, 'from');
+    const out = Core.permuteBlock(sample.units, perm);
+    $('#conv-output').textContent = out.join('');
+    Wiring.render($('#conv-wiring'), {
+      n: perm.length,
+      top: sample.units,
+      bottom: out,
+      links: perm.map((to, i) => [i, to - 1]),
+      linkClasses: cycleClasses(perm),
+      topTitle: t('wiring.plain'),
+      bottomTitle: t('wiring.cipher'),
+      label: t('conv.label', { n: perm.length }),
+    });
+    $('#conv-use').disabled = false;
+  }
+
+  $('#conv-method').addEventListener('change', computeConvert);
+  for (const sel of ['#conv-length', '#conv-rails', '#conv-rows', '#conv-cols', '#conv-keyword', '#conv-sample']) {
+    $(sel).addEventListener('input', computeConvert);
+  }
+  $('#conv-use').addEventListener('click', () => {
+    if (!state.conv) return;
+    setKey(state.conv);
+    showToast(t('conv.used', { n: state.conv.length }), 'success');
+  });
+
+  function clearCompose(msg) {
+    state.comp = null;
+    showInlineError('#comp-error', msg);
+    for (const sel of ['#comp-key', '#comp-twice', '#comp-once']) $(sel).textContent = t('key.none');
+    $('#comp-use').disabled = true;
+  }
+
+  function computeCompose() {
+    const a = Core.parseKey($('#comp-a').value, state.direction);
+    if (!a.ok) { clearCompose(t('comp.errorA', { msg: describe(a.error) })); return; }
+    const b = Core.parseKey($('#comp-b').value, state.direction);
+    if (!b.ok) { clearCompose(t('comp.errorB', { msg: describe(b.error) })); return; }
+    if (a.perm.length !== b.perm.length) {
+      clearCompose(t('comp.lengthMismatch', { a: a.perm.length, b: b.perm.length }));
+      return;
+    }
+    const sample = sampleUnits(a.perm.length, $('#comp-sample').value);
+    if (!sample.ok) { clearCompose(describe(sample.error)); return; }
+    showInlineError('#comp-error', '');
+    const c = Core.compose(a.perm, b.perm);
+    state.comp = c;
+    const twice = Core.permuteBlock(Core.permuteBlock(sample.units, a.perm), b.perm).join('');
+    const once = Core.permuteBlock(sample.units, c).join('');
+    $('#comp-key').textContent = keyText(c);
+    $('#comp-twice').textContent = `${sample.units.join('')} → ${twice}`;
+    $('#comp-once').textContent = `${sample.units.join('')} → ${once}`;
+    $('#comp-use').disabled = false;
+  }
+
+  for (const sel of ['#comp-a', '#comp-b', '#comp-sample']) $(sel).addEventListener('input', computeCompose);
+  $('#comp-a-current').addEventListener('click', () => {
+    $('#comp-a').value = keyText();
+    computeCompose();
+  });
+  $('#comp-use').addEventListener('click', () => {
+    if (!state.comp) return;
+    setKey(state.comp);
+    showToast(t('comp.used', { n: state.comp.length }), 'success');
+  });
+
+  /* ==========================================================================
    * Initialization - Default Values
    * ========================================================================== */
   $('#encrypt-input').value = 'ENIGMA IS FUN';
@@ -742,4 +1000,6 @@
   state.direction = checked && checked.value === 'from' ? 'from' : 'to';
   activateTab('keygen');
   setKey([3, 1, 4, 2]);
+  computeConvert();
+  computeCompose();
 })();

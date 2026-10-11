@@ -36,6 +36,7 @@
     <button type="button" class="tab active" id="tab-keygen" data-tab="keygen" role="tab" aria-selected="true" aria-controls="panel-keygen">鍵生成</button>
     <button type="button" class="tab" id="tab-encrypt" data-tab="encrypt" role="tab" aria-selected="false" aria-controls="panel-encrypt" tabindex="-1">暗号化</button>
     <button type="button" class="tab" id="tab-decrypt" data-tab="decrypt" role="tab" aria-selected="false" aria-controls="panel-decrypt" tabindex="-1">復号</button>
+    <button type="button" class="tab" id="tab-convert" data-tab="convert" role="tab" aria-selected="false" aria-controls="panel-convert" tabindex="-1">変換</button>
     <button type="button" class="tab" id="tab-study" data-tab="study" role="tab" aria-selected="false" aria-controls="panel-study" tabindex="-1">座学</button>
   </nav>
 
@@ -141,6 +142,30 @@
               <svg id="key-wiring" class="wiring" xmlns="http://www.w3.org/2000/svg"></svg>
             </div>
           </figure>
+
+          <section class="key-props" aria-labelledby="key-props-title">
+            <h3 id="key-props-title">鍵の性質</h3>
+            <dl class="key-facts">
+              <div><dt>巡回表記（色は配線図と同じ）</dt><dd id="prop-cycles">未設定</dd></div>
+              <div><dt>位数（同じ鍵を何回かけると元に戻るか）</dt><dd id="prop-order">未設定</dd></div>
+              <div><dt>動かない位置</dt><dd id="prop-fixed">未設定</dd></div>
+              <div><dt>2回かけると元に戻るか（対合）</dt><dd id="prop-involution">未設定</dd></div>
+              <div><dt>同じ長さの鍵の数</dt><dd id="prop-keyspace">未設定</dd></div>
+            </dl>
+            <p class="key-info">くり返しかけた様子（暗号化タブの平文の先頭のブロックを使います）：</p>
+            <p class="repeat-line mono" id="prop-repeat"></p>
+            <details class="matrix-box">
+              <summary>置換行列を見る</summary>
+              <p class="key-info">
+                列が平文の位置、行が暗号文の位置です。平文の位置iの文字が暗号文の位置jへ移るとき、j行i列が1になります。
+                暗号文を縦に並べたものは、この行列と平文を縦に並べたものの積です（Stinsonの教科書では、転置式暗号をこの行列を鍵にしたヒル暗号の特別な場合として扱います）。
+              </p>
+              <p id="prop-matrix-note" class="key-info" hidden></p>
+              <div class="table-wrap">
+                <table id="prop-matrix" class="matrix-table"></table>
+              </div>
+            </details>
+          </section>
         </div>
 
         <div class="key-management">
@@ -294,6 +319,82 @@
               </thead>
               <tbody></tbody>
             </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Convert -->
+    <section class="panel" id="panel-convert" role="tabpanel" aria-labelledby="tab-convert">
+      <div class="grid">
+        <div class="card">
+          <h2>ほかの転置式暗号を鍵にする</h2>
+          <p class="description">
+            文の長さを決めれば、どの転置式暗号も1つの順列（このツールの鍵）で書けます。方式と長さを選ぶと、同じ並べ替えになる鍵を作ります。
+          </p>
+          <div class="form-grid">
+            <label for="conv-method">方式</label>
+            <select id="conv-method">
+              <option value="rail-sequential">レールフェンス（順次配置）</option>
+              <option value="rail-zigzag">レールフェンス（ジグザグ）</option>
+              <option value="scytale">スキュタレー</option>
+              <option value="columnar">縦列転置（キーワードか数列）</option>
+              <option value="spiral">経路暗号（渦巻き）</option>
+              <option value="reverse">逆順</option>
+            </select>
+            <p class="hint form-wide" id="conv-help" aria-live="polite"></p>
+            <label for="conv-length" data-conv="length">文字数</label>
+            <input id="conv-length" data-conv="length" type="number" min="2" max="64" value="12" inputmode="numeric" />
+            <label for="conv-rails" data-conv="rails">レール数</label>
+            <input id="conv-rails" data-conv="rails" type="number" min="2" max="63" value="3" inputmode="numeric" />
+            <label for="conv-rows" data-conv="rows">行数</label>
+            <input id="conv-rows" data-conv="rows" type="number" min="2" max="32" value="3" inputmode="numeric" />
+            <label for="conv-cols" data-conv="cols">列数</label>
+            <input id="conv-cols" data-conv="cols" type="number" min="2" max="32" value="4" inputmode="numeric" />
+            <label for="conv-keyword" data-conv="keyword">鍵（キーワードか数列）</label>
+            <input id="conv-keyword" data-conv="keyword" type="text" value="ZEBRAS" autocomplete="off" spellcheck="false" />
+            <label for="conv-sample">試す文</label>
+            <input id="conv-sample" type="text" placeholder="空欄ならA, B, C…を使います" autocomplete="off" spellcheck="false" />
+          </div>
+          <p id="conv-error" class="error-msg" role="alert" hidden></p>
+          <dl class="key-facts">
+            <div><dt>鍵（送る向き）</dt><dd id="conv-key-to">未設定</dd></div>
+            <div><dt>鍵（取り出す向き）</dt><dd id="conv-key-from">未設定</dd></div>
+            <div><dt>暗号文の例</dt><dd id="conv-output">未設定</dd></div>
+          </dl>
+          <div class="wiring-scroll" tabindex="0" role="region" aria-label="変換した鍵の配線図（横にスクロールできます）">
+            <svg id="conv-wiring" class="wiring" xmlns="http://www.w3.org/2000/svg"></svg>
+          </div>
+          <div class="actions">
+            <button type="button" class="btn primary" id="conv-use">この鍵を使う</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>2つの鍵を続けてかける（合成）</h2>
+          <p class="description">
+            鍵Aで暗号化した文を、さらに鍵Bで暗号化すると、1つの鍵で暗号化したのと同じ結果になります。
+            二重転置も、文の長さを決めれば1つの順列です。鍵はいま選んでいる向き（<span class="key-direction-name">送る向き</span>）で読みます。
+          </p>
+          <div class="form-grid">
+            <label for="comp-a">鍵A（先にかける）</label>
+            <input id="comp-a" type="text" value="3-1-4-2" autocomplete="off" spellcheck="false" />
+            <label for="comp-b">鍵B（次にかける）</label>
+            <input id="comp-b" type="text" value="2-1-4-3" autocomplete="off" spellcheck="false" />
+            <label for="comp-sample">試す文</label>
+            <input id="comp-sample" type="text" placeholder="空欄ならA, B, C…を使います" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="actions">
+            <button type="button" class="btn ghost" id="comp-a-current">鍵Aに今の鍵を入れる</button>
+          </div>
+          <p id="comp-error" class="error-msg" role="alert" hidden></p>
+          <dl class="key-facts">
+            <div><dt>合成した鍵（<span class="key-direction-name">送る向き</span>）</dt><dd id="comp-key">未設定</dd></div>
+            <div><dt>Aのあと、Bをかけた結果</dt><dd id="comp-twice">未設定</dd></div>
+            <div><dt>合成した鍵を1回かけた結果</dt><dd id="comp-once">未設定</dd></div>
+          </dl>
+          <div class="actions">
+            <button type="button" class="btn primary" id="comp-use">合成した鍵を使う</button>
           </div>
         </div>
       </div>

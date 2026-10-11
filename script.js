@@ -1,946 +1,743 @@
 /* ============================================================================
- * Permutation CipherLab - Main Script
+ * Permutation CipherLab - Main Script（画面の制御）
  * ============================================================================
  *
  * Educational tool for exploring permutation (transposition) ciphers.
  *
- * Features:
- * - Block-wise permutation encryption/decryption
- * - Pattern generation (random, manual, visual drag-and-drop)
- * - Pattern visualization (forward and inverse)
- * - Multiple pattern storage via localStorage
- * - Block navigation for multi-block cipher analysis
- * - Animation demo for understanding permutation step-by-step
+ * - 計算は js/permutation-core.js（PermutationCore）、文言は js/messages.js（PclMessages）、
+ *   配線図は js/wiring.js（PclWiring）に置き、このファイルは DOM の操作だけを受け持つ
+ * - 状態は state の1か所に持ち、鍵・平文・埋字が変わるたびに結果を計算し直して描き直す
+ *   （古い暗号文や表が残らない）
+ * - 利用者の文字列は textContent か SVG の text 要素で出す（innerHTML に入れない）
  *
- * Architecture:
- * - Pure vanilla JavaScript (no frameworks)
- * - Event-driven architecture with tab-based UI
- * - Global state management via `currentKey`
- * - Security: XSS prevention using textContent instead of innerHTML
- *
- * ============================================================================
- */
-
-/* ============================================================================
- * DOM Helpers
  * ============================================================================ */
-const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => document.querySelectorAll(sel);
+(function () {
+  'use strict';
 
-/* ============================================================================
- * Global State
- * ============================================================================ */
-const STORAGE_KEY = 'pcl_patterns_v1';  // localStorage key for saved patterns
-let currentKey = null;                   // Current active permutation pattern (global state)
+  const Core = window.PermutationCore;
+  const Wiring = window.PclWiring;
+  const Messages = window.PclMessages;
 
-/* ============================================================================
- * UI Feedback Functions
- * ============================================================================ */
+  /* ==========================================================================
+   * DOM Helpers
+   * ========================================================================== */
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => document.querySelectorAll(sel);
 
-/**
- * Show toast notification
- * @param {string} msg - Message to display
- * @param {string} type - Type of toast: 'success', 'danger', or ''
- */
-function showToast(msg, type=''){
-  const t = $('#toast');
-  t.textContent = msg;
-  t.className = `toast ${type} show`;
-  clearTimeout(showToast._timer);
-  showToast._timer = setTimeout(()=> t.className='toast', 1600);
-}
+  /* ==========================================================================
+   * Global State
+   * ========================================================================== */
+  const STORAGE_KEY = 'pcl_patterns_v1';  // 保存した鍵（送る向きの文字列）
+  const STEP_INTERVAL = 450;              // 「自動で引く」の間隔（ミリ秒）
 
-/**
- * Show inline error message near input field
- * @param {string} elementId - CSS selector for error element
- * @param {string} msg - Error message (empty string to hide)
- */
-function showInlineError(elementId, msg){
-  const el = $(elementId);
-  if(!el) return;
-  if(msg){
+  const state = {
+    lang: 'ja',
+    direction: 'to',          // 鍵の書き方（to＝送る向き、from＝取り出す向き）
+    key: [3, 1, 4, 2],        // 送る向きの配列（1始まり）
+    enc: { result: null, block: 0, step: null, timer: null },
+    dec: { result: null, block: 0 },
+    editorOpen: false,
+    editorSelected: null,
+    storageOk: true,
+  };
+
+  const t = (key, params) => Messages.format(state.lang, key, params);
+  const describe = (err) => t(err.key, err.params);
+
+  /* ==========================================================================
+   * UI Feedback Functions
+   * ========================================================================== */
+
+  /** トースト（aria-live で読み上げる） */
+  function showToast(msg, type = '') {
+    const el = $('#toast');
     el.textContent = msg;
-    el.style.display = 'block';
-  }else{
-    el.textContent = '';
-    el.style.display = 'none';
-  }
-}
-
-/* ============================================================================
- * Tab Navigation
- * ============================================================================ */
-$$('.tab').forEach(btn=>{
-  btn.addEventListener('click', ()=>{
-    $$('.tab').forEach(b=> b.classList.remove('active'));
-    btn.classList.add('active');
-    const tab = btn.dataset.tab;
-    $$('.panel').forEach(p=> p.classList.remove('active'));
-    $(`#panel-${tab}`).classList.add('active');
-  });
-});
-
-/* ============================================================================
- * Core Cryptographic Functions
- * ============================================================================ */
-
-/**
- * Parse pattern string into array of integers
- * Accepts multiple delimiters: hyphen, space, comma, Japanese comma
- * @param {string} str - Pattern string (e.g., "3-1-4-2")
- * @param {number} n - Expected length (optional, for validation)
- * @returns {number[]|null} - Parsed pattern or null if invalid
- */
-function parsePattern(str, n){
-  // Accept forms like "3-1-4-2" or "3 1 4 2" or "3,1,4,2"
-  if(!str) return null;
-
-  // Trim and check for trailing delimiters
-  const trimmed = str.trim();
-  if(/[\s,\-，、]$/.test(trimmed)){
-    return null; // Ends with delimiter
+    el.className = `toast ${type} show`;
+    clearTimeout(showToast.timer);
+    showToast.timer = setTimeout(() => { el.className = 'toast'; }, 1800);
   }
 
-  const parts = trimmed.split(/[\s,\-，、]+/).filter(Boolean);
-
-  // Check if all parts are valid integers
-  const numbers = parts.map(x => {
-    const num = parseInt(x, 10);
-    // Check if parsing succeeded and the string representation matches
-    if(isNaN(num) || String(num) !== x.trim()){
-      return NaN;
-    }
-    return num;
-  });
-
-  if(numbers.some(Number.isNaN)) return null;
-  if(n && numbers.length !== n) return null;
-  return numbers;
-}
-
-/**
- * Validate permutation pattern
- * Ensures pattern is a valid permutation of 1..n
- * @param {number[]} perm - Permutation array to validate
- * @returns {{ok: boolean, msg?: string}} - Validation result
- */
-function validatePermutation(perm){
-  if(!Array.isArray(perm) || perm.length<2) {
-    return {ok:false, msg:'長さ2以上のパターンを指定してください'};
+  /** 入力欄のそばのエラー（空文字で隠す） */
+  function showInlineError(selector, msg) {
+    const el = $(selector);
+    if (!el) return;
+    el.textContent = msg || '';
+    el.hidden = !msg;
   }
 
-  const n = perm.length;
-
-  // Check for non-positive integers
-  if(perm.some(x => x < 1 || !Number.isInteger(x))){
-    return {ok:false, msg:'1以上の整数のみ使用できます'};
-  }
-
-  // Check for values out of range (must be in 1..n)
-  const outOfRange = perm.filter(x => x > n);
-
-  if(outOfRange.length > 0){
-    const outOfRangeStr = [...new Set(outOfRange)].join(', ');
-    return {ok:false, msg:`範囲外の値: ${outOfRangeStr}（1〜${n}の値のみ使用できます）`};
-  }
-
-  // Check for duplicates
-  const set = new Set(perm);
-  if(set.size !== n) {
-    const duplicates = perm.filter((val, idx) => perm.indexOf(val) !== idx);
-    return {ok:false, msg:`重複があります: ${[...new Set(duplicates)].join(', ')}`};
-  }
-
-  // Check for missing values
-  const missing = [];
-  for(let i=1; i<=n; i++){
-    if(!set.has(i)) missing.push(i);
-  }
-  if(missing.length > 0){
-    return {ok:false, msg:`不足している値があります: ${missing.join(', ')}`};
-  }
-
-  return {ok:true};
-}
-
-/**
- * Calculate inverse permutation for decryption
- * @param {number[]} perm - Original permutation (1-based)
- * @returns {number[]} - Inverse permutation
- * @example inversePermutation([3,1,4,2]) returns [2,4,1,3]
- */
-function inversePermutation(perm){
-  const inv = new Array(perm.length);
-  // perm[i] = j  (1-based) means position i -> j
-  // inverse: inv[j-1] = i+1
-  perm.forEach((j, i)=> inv[j-1] = i+1);
-  return inv;
-}
-
-/**
- * Split string into fixed-size chunks (blocks)
- * @param {string} str - Input string
- * @param {number} size - Block size
- * @returns {string[]} - Array of chunks
- */
-function chunkBy(str, size){
-  const chunks = [];
-  for(let i=0;i<str.length;i+=size){
-    chunks.push(str.slice(i, i+size));
-  }
-  return chunks;
-}
-
-/**
- * Apply permutation to a single block
- * @param {string} block - Input block
- * @param {number[]} perm - Permutation pattern (1-based)
- * @param {string} padChar - Padding character
- * @param {boolean} padEnable - Whether to pad incomplete blocks
- * @returns {string} - Permuted block
- */
-function applyPermutationToBlock(block, perm, padChar, padEnable){
-  const n = perm.length;
-  let b = block;
-  if(block.length < n){
-    if(padEnable && padChar){
-      b = block + padChar.repeat(n - block.length);
-    }else{
-      // leave as-is (no permutation if shorter than n)
-      // Alternative: permute existing positions only.
-      // Here we leave as-is to avoid ambiguity.
-      return block;
+  function renderNotes(listEl, notes) {
+    listEl.replaceChildren();
+    for (const note of notes) {
+      const li = document.createElement('li');
+      li.textContent = describe(note);
+      listEl.append(li);
     }
   }
-  const out = new Array(n);
-  for(let i=0;i<n;i++){
-    const from = i;          // 0-based index
-    const to = perm[i]-1;    // 0-based destination
-    out[to] = b[from];
-  }
-  return out.join('');
-}
 
-/**
- * Apply permutation to entire string (block-wise)
- * @param {string} str - Input string
- * @param {number[]} perm - Permutation pattern
- * @param {string} padChar - Padding character
- * @param {boolean} padEnable - Enable padding
- * @returns {string} - Encrypted string
- */
-function applyPermutation(str, perm, padChar, padEnable){
-  const n = perm.length;
-  return chunkBy(str, n).map(block=>{
-    return applyPermutationToBlock(block, perm, padChar, padEnable);
-  }).join('');
-}
-
-/**
- * Trim padding characters from right end of string
- * @param {string} str - Input string
- * @param {string} padChar - Padding character to remove
- * @returns {string} - String with padding removed
- */
-function trimRightPad(str, padChar){
-  if(!padChar) return str;
-  let i = str.length-1;
-  while(i>=0 && str[i]===padChar) i--;
-  return str.slice(0, i+1);
-}
-
-/**
- * Convert permutation array to string representation
- * @param {number[]} perm - Permutation array
- * @returns {string} - Pattern string (e.g., "3-1-4-2")
- */
-function buildPatternString(perm){
-  return perm.join('-');
-}
-
-/**
- * Generate random permutation using Fisher-Yates shuffle
- * @param {number} n - Length of permutation
- * @returns {number[]} - Random permutation of 1..n
- */
-function generateRandomPermutation(n){
-  const arr = Array.from({length:n}, (_,i)=>i+1);
-  // Fisher-Yates shuffle
-  for(let i=n-1; i>0; i--){
-    const j = Math.floor(Math.random()*(i+1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
-
-/* ============================================================================
- * Key Management Functions
- * ============================================================================ */
-
-/**
- * Update the current active key and sync UI
- * @param {number[]|null} pattern - New permutation pattern
- */
-function updateCurrentKey(pattern){
-  currentKey = pattern;
-  const keyText = $('#current-key-text');
-  const keyCopyBtn = $('#key-copy');
-  if(pattern){
-    keyText.textContent = buildPatternString(pattern);
-    keyCopyBtn.disabled = false;
-    // Update all tabs
-    updateKeyDisplays();
-    // Update visualization
-    renderKeyVisualization(pattern);
-  }else{
-    keyText.textContent = '未生成';
-    keyCopyBtn.disabled = true;
-    // Hide visualization
-    const vizContainer = $('#key-visualization');
-    if(vizContainer) vizContainer.style.display = 'none';
-  }
-}
-
-/**
- * Update key display in encryption and decryption tabs
- */
-function updateKeyDisplays(){
-  const keyStr = currentKey ? buildPatternString(currentKey) : '鍵生成タブで鍵を生成してください';
-  const displays = ['#encrypt-key-display', '#decrypt-key-display'];
-  displays.forEach(sel=>{
-    const el = $(sel);
-    if(el) el.textContent = keyStr;
-  });
-
-  // Update block size info
-  if(currentKey){
-    const blockSize = currentKey.length;
-    const blockInfo = `（ブロックサイズ：${blockSize}文字ごとに処理）`;
-    const encInfo = $('#encrypt-block-info');
-    const decInfo = $('#decrypt-block-info');
-    if(encInfo) encInfo.textContent = blockInfo;
-    if(decInfo) decInfo.textContent = blockInfo;
-  }else{
-    const encInfo = $('#encrypt-block-info');
-    const decInfo = $('#decrypt-block-info');
-    if(encInfo) encInfo.textContent = '';
-    if(decInfo) decInfo.textContent = '';
-  }
-}
-
-function renderKeyVisualization(pattern){
-  const vizContainer = $('#key-visualization');
-  if(!vizContainer) return;
-
-  const n = pattern.length;
-  const inverse = inversePermutation(pattern);
-
-  // Render forward pattern
-  const forwardViz = $('#pattern-viz-forward');
-  if(forwardViz){
-    forwardViz.innerHTML = '';
-
-    // Top row (positions 1,2,3,4...)
-    const topRow = document.createElement('div');
-    topRow.className = 'viz-row';
-    for(let i=1; i<=n; i++){
-      const cell = document.createElement('div');
-      cell.className = 'viz-cell top';
-      cell.textContent = i;
-      topRow.appendChild(cell);
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast(t('toast.copied'), 'success');
+    } catch {
+      showToast(t('toast.copyFailed'), 'danger');
     }
-    forwardViz.appendChild(topRow);
+  }
 
-    // Arrows
-    const arrows = document.createElement('div');
-    arrows.className = 'viz-arrows';
-    for(let i=0; i<n; i++){
-      const arrow = document.createElement('div');
-      arrow.className = 'viz-arrow';
-      arrow.textContent = '↓';
-      arrows.appendChild(arrow);
+  /* ==========================================================================
+   * Tab Navigation（矢印キー・Home・End でも移る）
+   * ========================================================================== */
+  const tabs = [...$$('.tab')];
+
+  function activateTab(name, focus = false) {
+    for (const tab of tabs) {
+      const on = tab.dataset.tab === name;
+      tab.classList.toggle('active', on);
+      tab.setAttribute('aria-selected', String(on));
+      tab.tabIndex = on ? 0 : -1;
+      if (on && focus) tab.focus();
     }
-    forwardViz.appendChild(arrows);
-
-    // Bottom row (pattern values)
-    const bottomRow = document.createElement('div');
-    bottomRow.className = 'viz-row';
-    for(let i=0; i<n; i++){
-      const cell = document.createElement('div');
-      cell.className = 'viz-cell bottom';
-      cell.textContent = pattern[i];
-      bottomRow.appendChild(cell);
-    }
-    forwardViz.appendChild(bottomRow);
+    for (const panel of $$('.panel')) panel.classList.toggle('active', panel.id === `panel-${name}`);
   }
 
-  // Render inverse pattern
-  const inverseViz = $('#pattern-viz-inverse');
-  if(inverseViz){
-    inverseViz.innerHTML = '';
-
-    // Top row (positions 1,2,3,4...)
-    const topRow = document.createElement('div');
-    topRow.className = 'viz-row';
-    for(let i=1; i<=n; i++){
-      const cell = document.createElement('div');
-      cell.className = 'viz-cell top';
-      cell.textContent = i;
-      topRow.appendChild(cell);
-    }
-    inverseViz.appendChild(topRow);
-
-    // Arrows
-    const arrows = document.createElement('div');
-    arrows.className = 'viz-arrows';
-    for(let i=0; i<n; i++){
-      const arrow = document.createElement('div');
-      arrow.className = 'viz-arrow';
-      arrow.textContent = '↓';
-      arrows.appendChild(arrow);
-    }
-    inverseViz.appendChild(arrows);
-
-    // Bottom row (inverse values)
-    const bottomRow = document.createElement('div');
-    bottomRow.className = 'viz-row';
-    for(let i=0; i<n; i++){
-      const cell = document.createElement('div');
-      cell.className = 'viz-cell bottom';
-      cell.textContent = inverse[i];
-      bottomRow.appendChild(cell);
-    }
-    inverseViz.appendChild(bottomRow);
-  }
-
-  vizContainer.style.display = 'block';
-}
-
-/* ============================================================================
- * localStorage Pattern Management
- * ============================================================================ */
-
-/**
- * Load saved patterns from localStorage
- * @returns {Array<{name: string, pattern: string}>} - Array of saved patterns
- */
-function loadSaved(){
-  try{
-    const data = localStorage.getItem(STORAGE_KEY);
-    if(!data) return [];
-    const parsed = JSON.parse(data);
-    if(!Array.isArray(parsed)) return [];
-    return parsed;
-  }catch(e){
-    console.error('Failed to load saved patterns:', e);
-    return [];
-  }
-}
-function saveSaved(list){
-  try{
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-  }catch(e){
-    console.error('Failed to save patterns:', e);
-    showToast('保存に失敗しました（容量制限の可能性）', 'danger');
-  }
-}
-function renderSaved(container, onLoad, onDelete){
-  const saved = loadSaved();
-  container.innerHTML = '';
-  if(saved.length===0){
-    const p = document.createElement('p');
-    p.className='muted';
-    p.textContent='（保存なし）';
-    container.appendChild(p);
-    return;
-  }
-  saved.forEach(({name, pattern})=>{
-    const chip = document.createElement('div');
-    chip.className='chip';
-    const btnLoad = document.createElement('button');
-    btnLoad.textContent = name;
-    btnLoad.title = pattern;
-    btnLoad.addEventListener('click', ()=> onLoad({name, pattern}));
-    const btnDel = document.createElement('button');
-    btnDel.innerHTML = '✕';
-    btnDel.setAttribute('aria-label', '削除');
-    btnDel.addEventListener('click', ()=>{
-      const list = loadSaved().filter(x=> x.name!==name);
-      saveSaved(list);
-      renderSaved(container, onLoad, onDelete);
-      showToast(`削除: ${name}`, 'danger');
-      onDelete && onDelete({name});
-    });
-    chip.append(btnLoad, btnDel);
-    container.appendChild(chip);
-  });
-}
-
-function addSaved(name, pattern){
-  if(!name) return {ok:false, msg:'保存名を入力してください'};
-  const list = loadSaved();
-  const exists = list.find(x=> x.name===name);
-  if(exists){
-    exists.pattern = pattern;
-  }else{
-    list.push({name, pattern});
-  }
-  saveSaved(list);
-  return {ok:true};
-}
-
-/* ========== Drag Editor ========== */
-function openDragEditor(listEl, wrapEl, patternStr, n){
-  // initialize from pattern string or sequential 1..n
-  const perm = parsePattern(patternStr, n) || Array.from({length:n}, (_,i)=>i+1);
-  listEl.innerHTML = '';
-  perm.forEach(val=>{
-    const li = document.createElement('li');
-    li.draggable = true;
-    li.textContent = String(val);
-    li.dataset.value = String(val);
-    listEl.appendChild(li);
-  });
-  wrapEl.hidden = false;
-
-  let dragSrc = null;
-  listEl.addEventListener('dragstart', e=>{
-    if(e.target.tagName !== 'LI') return;
-    dragSrc = e.target;
-    dragSrc.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', e.target.dataset.value);
-  });
-  listEl.addEventListener('dragend', e=>{
-    if(e.target.tagName !== 'LI') return;
-    e.target.classList.remove('dragging');
-  });
-  listEl.addEventListener('dragover', e=>{
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  });
-  listEl.addEventListener('drop', e=>{
-    e.preventDefault();
-    const li = e.target.closest('li');
-    if(!li || !dragSrc || li===dragSrc) return;
-    const nodes = Array.from(listEl.children);
-    const from = nodes.indexOf(dragSrc);
-    const to = nodes.indexOf(li);
-    if(from<to){
-      listEl.insertBefore(dragSrc, li.nextSibling);
-    }else{
-      listEl.insertBefore(dragSrc, li);
-    }
-  });
-}
-
-function readDragPattern(listEl){
-  return Array.from(listEl.children).map(li=> parseInt(li.dataset.value,10));
-}
-
-/* ========== Mapping Table ========== */
-function renderMapTable(tbody, before, after, direction='forward'){
-  tbody.innerHTML = '';
-  const n = Math.max(before.length, after.length);
-  for(let i=0;i<n;i++){
-    const tr = document.createElement('tr');
-    const idx = document.createElement('td');
-    idx.textContent = String(i+1);
-    const a = document.createElement('td');
-    const b = document.createElement('td');
-    if(direction==='forward'){
-      a.textContent = before[i] ?? '';
-      b.textContent = after[i] ?? '';
-    }else{
-      a.textContent = after[i] ?? '';
-      b.textContent = before[i] ?? '';
-    }
-    tr.append(idx,a,b);
-    tbody.appendChild(tr);
-  }
-}
-
-
-/* ============================================================================
- * KEY GENERATION TAB
- * ============================================================================
- * Features:
- * - Random pattern generation (Fisher-Yates)
- * - Manual pattern input with validation
- * - Visual drag-and-drop pattern editor
- * - Pattern visualization (forward and inverse)
- * - Pattern save/load via localStorage
- * ============================================================================ */
-
-const keygenEls = {
-  length: $('#keygen-length'),
-  presetBtns: $$('.btn-preset'),
-  randomBtn: $('#keygen-random'),
-  manual: $('#keygen-manual'),
-  validateBtn: $('#keygen-validate'),
-  visualBtn: $('#keygen-visual'),
-  dragWrap: $('#keygen-draggable-wrap'),
-  dragList: $('#keygen-draggable'),
-  visualApplyBtn: $('#keygen-visual-apply'),
-  saveName: $('#key-save-name'),
-  saveBtn: $('#key-save'),
-  savedList: $('#key-saved-list'),
-  copyBtn: $('#key-copy'),
-};
-
-// Preset buttons - just set the value, no active state
-keygenEls.presetBtns.forEach(btn=>{
-  btn.addEventListener('click', ()=>{
-    const length = parseInt(btn.dataset.length, 10);
-    keygenEls.length.value = String(length);
-  });
-});
-
-// Random generation
-keygenEls.randomBtn.addEventListener('click', ()=>{
-  const n = Math.max(2, Math.min(64, parseInt(keygenEls.length.value,10) || 4));
-  keygenEls.length.value = String(n);
-  const pattern = generateRandomPermutation(n);
-  updateCurrentKey(pattern);
-  showToast('ランダム鍵を生成しました', 'success');
-});
-
-// Manual validation
-keygenEls.validateBtn.addEventListener('click', ()=>{
-  const input = keygenEls.manual.value.trim();
-  const expectedLength = Math.max(2, Math.min(64, parseInt(keygenEls.length.value,10) || 4));
-  keygenEls.length.value = String(expectedLength);
-
-  if(!input){
-    showInlineError('#keygen-manual-error', 'パターンを入力してください');
-    showToast('パターンを入力してください', 'danger');
-    return;
-  }
-
-  // Parse without length constraint first
-  const perm = parsePattern(input);
-  if(!perm){
-    showInlineError('#keygen-manual-error', 'パターン形式が不正です（例: 3-1-4-2）');
-    showToast('パターン形式が不正です', 'danger');
-    return;
-  }
-
-  // Check if length matches the expected length
-  if(perm.length !== expectedLength){
-    showInlineError('#keygen-manual-error', `パターン長${expectedLength}なら、1〜${expectedLength}の数字をそれぞれ1回だけ使用してください。`);
-    showToast(`パターン長${expectedLength}なら、1〜${expectedLength}の数字をそれぞれ1回だけ使用してください。`, 'danger');
-    return;
-  }
-
-  // Validate permutation
-  const v = validatePermutation(perm);
-  if(!v.ok){
-    showInlineError('#keygen-manual-error', v.msg);
-    showToast(v.msg, 'danger');
-    return;
-  }
-
-  showInlineError('#keygen-manual-error', '');
-  updateCurrentKey(perm);
-  showToast(`✓ 有効な鍵です（長さ: ${perm.length}）`, 'success');
-});
-
-// Visual editor
-keygenEls.visualBtn.addEventListener('click', ()=>{
-  const n = Math.max(2, Math.min(64, parseInt(keygenEls.length.value,10) || 4));
-  keygenEls.length.value = String(n);
-  const initial = currentKey && currentKey.length===n ? buildPatternString(currentKey) : '';
-  openDragEditor(keygenEls.dragList, keygenEls.dragWrap, initial, n);
-});
-
-keygenEls.visualApplyBtn.addEventListener('click', ()=>{
-  const pattern = readDragPattern(keygenEls.dragList);
-  const v = validatePermutation(pattern);
-  if(!v.ok){
-    showToast(v.msg, 'danger');
-    return;
-  }
-  updateCurrentKey(pattern);
-  showToast('ビジュアル編集の鍵を設定しました', 'success');
-});
-
-// Copy key
-keygenEls.copyBtn.addEventListener('click', async ()=>{
-  if(!currentKey) return;
-  try{
-    await navigator.clipboard.writeText(buildPatternString(currentKey));
-    showToast('鍵をコピーしました', 'success');
-  }catch{
-    showToast('コピー失敗', 'danger');
-  }
-});
-
-// Save key
-keygenEls.saveBtn.addEventListener('click', ()=>{
-  if(!currentKey){
-    showToast('先に鍵を生成してください', 'danger');
-    return;
-  }
-  const name = keygenEls.saveName.value.trim();
-  const res = addSaved(name, buildPatternString(currentKey));
-  if(!res.ok){ showToast(res.msg, 'danger'); return; }
-  renderSaved(keygenEls.savedList, ({pattern})=>{
-    const perm = parsePattern(pattern);
-    if(perm){
-      updateCurrentKey(perm);
-      keygenEls.length.value = String(perm.length);
-      showToast(`読込: ${pattern}`, 'success');
-    }
-  });
-  showToast('鍵を保存しました', 'success');
-});
-
-// Load saved keys
-renderSaved(keygenEls.savedList, ({pattern})=>{
-  const perm = parsePattern(pattern);
-  if(perm){
-    updateCurrentKey(perm);
-    keygenEls.length.value = String(perm.length);
-    showToast(`読込: ${pattern}`, 'success');
-  }
-});
-
-/* ============================================================================
- * ENCRYPTION TAB
- * ============================================================================
- * Features:
- * - Block-wise permutation encryption
- * - Example text presets
- * - Padding configuration (enable/disable, custom character)
- * - Block navigation for multi-block analysis
- * - Mapping table (plaintext → ciphertext)
- * - Animation demo for educational purposes
- * - Send to decryption tab workflow
- * ============================================================================ */
-
-const encryptEls = {
-  input: $('#encrypt-input'),
-  presetToggle: $('#encrypt-preset-toggle'),
-  presetList: $('#encrypt-preset-list'),
-  presetItems: $$('.preset-item'),
-  padChar: $('#encrypt-pad-char'),
-  padEnable: $('#encrypt-pad-enable'),
-  run: $('#encrypt-run'),
-  animate: $('#encrypt-animate'),
-  output: $('#encrypt-output'),
-  copy: $('#encrypt-copy'),
-  toDecrypt: $('#encrypt-to-decrypt'),
-  mapBody: $('#encrypt-map tbody'),
-  blockPrev: $('#encrypt-block-prev'),
-  blockNext: $('#encrypt-block-next'),
-  blockIndicator: $('#encrypt-block-indicator'),
-};
-
-let encryptBlocks = { input: [], output: [] };
-let encryptCurrentBlock = 0;
-
-// Preset toggle
-if(encryptEls.presetToggle && encryptEls.presetList){
-  encryptEls.presetToggle.addEventListener('click', ()=>{
-    const isHidden = encryptEls.presetList.style.display === 'none';
-    encryptEls.presetList.style.display = isHidden ? 'block' : 'none';
-    encryptEls.presetToggle.textContent = isHidden ? '✕ 閉じる' : '📝 例文を選択';
-  });
-}
-
-// Preset selection
-if(encryptEls.presetItems){
-  encryptEls.presetItems.forEach(item=>{
-    item.addEventListener('click', ()=>{
-      if(!encryptEls.input) return;
-      encryptEls.input.value = item.dataset.text || '';
-      if(encryptEls.presetList) encryptEls.presetList.style.display = 'none';
-      if(encryptEls.presetToggle) encryptEls.presetToggle.textContent = '📝 例文を選択';
-      showToast('例文を設定しました', 'success');
+  tabs.forEach((tab, i) => {
+    tab.addEventListener('click', () => activateTab(tab.dataset.tab));
+    tab.addEventListener('keydown', (e) => {
+      let next = null;
+      if (e.key === 'ArrowRight') next = (i + 1) % tabs.length;
+      else if (e.key === 'ArrowLeft') next = (i - 1 + tabs.length) % tabs.length;
+      else if (e.key === 'Home') next = 0;
+      else if (e.key === 'End') next = tabs.length - 1;
+      if (next === null) return;
+      e.preventDefault();
+      activateTab(tabs[next].dataset.tab, true);
     });
   });
-}
 
-function updateEncryptBlockNav(){
-  const totalBlocks = encryptBlocks.input.length;
-  encryptEls.blockIndicator.textContent = totalBlocks > 0 ? `ブロック ${encryptCurrentBlock + 1} / ${totalBlocks}` : 'ブロック 1';
-  encryptEls.blockPrev.disabled = encryptCurrentBlock <= 0;
-  encryptEls.blockNext.disabled = encryptCurrentBlock >= totalBlocks - 1 || totalBlocks === 0;
+  /* ==========================================================================
+   * Key Management（鍵の設定と表示）
+   * ========================================================================== */
 
-  if(totalBlocks > 0){
-    const blockIn = encryptBlocks.input[encryptCurrentBlock] || '';
-    const blockOut = encryptBlocks.output[encryptCurrentBlock] || '';
-    renderMapTable(encryptEls.mapBody, blockIn, blockOut, 'forward');
+  /** 鍵を変える。暗号化・復号も計算し直す */
+  function setKey(perm) {
+    state.key = perm.slice();
+    state.enc.block = 0;
+    state.dec.block = 0;
+    stopPlay();
+    state.enc.step = null;
+    $('#keygen-length').value = String(perm.length);
+    renderKey();
+    recompute();
   }
-}
 
-encryptEls.blockPrev.addEventListener('click', ()=>{
-  if(encryptCurrentBlock > 0){
-    encryptCurrentBlock--;
-    updateEncryptBlockNav();
+  function keyText(perm = state.key) {
+    return Core.formatKey(perm, state.direction);
   }
-});
 
-encryptEls.blockNext.addEventListener('click', ()=>{
-  if(encryptCurrentBlock < encryptBlocks.input.length - 1){
-    encryptCurrentBlock++;
-    updateEncryptBlockNav();
+  function renderKey() {
+    const perm = state.key;
+    const n = perm.length;
+    $('#current-key-text').textContent = keyText();
+    $('#key-copy').disabled = false;
+    $('#key-to').textContent = Core.formatKey(perm, 'to');
+    $('#key-from').textContent = Core.formatKey(perm, 'from');
+    $('#key-length').textContent = t('key.lengthValue', { n });
+
+    const dirName = t(state.direction === 'from' ? 'key.directionFrom' : 'key.directionTo');
+    for (const el of $$('.key-direction-name')) el.textContent = dirName;
+    $('#encrypt-key-display').textContent = keyText();
+    $('#decrypt-key-display').textContent = keyText();
+    $('#decrypt-inverse-display').textContent = Core.formatKey(Core.inversePermutation(perm), 'to');
+    $('#encrypt-block-info').textContent = t('key.blockSize', { n });
+    $('#decrypt-block-info').textContent = t('key.blockSize', { n });
+
+    const links = perm.map((to, i) => [i, to - 1]);
+    const pairs = links.map(([a, b]) => t('wiring.pair', { from: a + 1, to: b + 1 })).join(', ');
+    Wiring.render($('#key-wiring'), {
+      n,
+      links,
+      label: n <= 16 ? t('wiring.keyLabel', { list: pairs }) : t('wiring.keyLabelLong', { n }),
+    });
+    if (state.editorOpen) renderEditor();
+    renderSaved();
   }
-});
 
-encryptEls.run.addEventListener('click', ()=>{
-  if(!currentKey){
-    showToast('鍵生成タブで鍵を生成してください', 'danger');
-    return;
+  /* ==========================================================================
+   * KEY GENERATION TAB
+   * ========================================================================== */
+  const lengthInput = $('#keygen-length');
+
+  function readLength() {
+    const n = Math.max(Core.MIN_LENGTH, Math.min(Core.MAX_LENGTH, Number.parseInt(lengthInput.value, 10) || 4));
+    lengthInput.value = String(n);
+    return n;
   }
-  const padChar = (encryptEls.padChar.value || '').slice(0,1) || '';
-  const padEnable = encryptEls.padEnable.checked;
-  const input = encryptEls.input.value;
-  const output = applyPermutation(input, currentKey, padChar, padEnable);
-  encryptEls.output.value = output;
 
-  // Store blocks for navigation
-  const n = currentKey.length;
-  encryptBlocks.input = chunkBy(input, n);
-  encryptBlocks.output = chunkBy(output, n);
-  encryptCurrentBlock = 0;
+  lengthInput.addEventListener('change', readLength);
 
-  updateEncryptBlockNav();
-  showToast('暗号化を実行しました', 'success');
-});
-
-encryptEls.copy.addEventListener('click', async ()=>{
-  try{
-    await navigator.clipboard.writeText(encryptEls.output.value || '');
-    showToast('暗号文をコピーしました', 'success');
-  }catch{
-    showToast('コピー失敗', 'danger');
+  for (const btn of $$('.btn-preset')) {
+    btn.addEventListener('click', () => {
+      lengthInput.value = btn.dataset.length;
+      readLength();
+    });
   }
-});
 
-encryptEls.toDecrypt.addEventListener('click', ()=>{
-  const ciphertext = encryptEls.output.value;
-  if(!ciphertext){
-    showToast('先に暗号化を実行してください', 'danger');
-    return;
+  // 向きの切り替え：鍵そのものは変えず、書き方だけを変える
+  for (const radio of $$('input[name="key-direction"]')) {
+    radio.addEventListener('change', () => {
+      if (!radio.checked) return;
+      const before = state.direction;
+      state.direction = radio.value === 'from' ? 'from' : 'to';
+      const manual = $('#keygen-manual');
+      const parsed = Core.parseKey(manual.value, before);
+      if (parsed.ok) manual.value = Core.formatKey(parsed.perm, state.direction);
+      showInlineError('#keygen-manual-error', '');
+      state.editorSelected = null;
+      renderKey();
+    });
   }
-  $('#decrypt-input').value = ciphertext;
-  // Switch to decrypt tab
-  $$('.tab').forEach(b=> b.classList.remove('active'));
-  $$('.panel').forEach(p=> p.classList.remove('active'));
-  $('[data-tab="decrypt"]').classList.add('active');
-  $('#panel-decrypt').classList.add('active');
-  showToast('暗号文を復号タブに送りました', 'success');
-});
 
-encryptEls.animate.addEventListener('click', ()=>{
-  if(!currentKey){
-    showToast('鍵生成タブで鍵を生成してください', 'danger');
-    return;
-  }
-  const n = currentKey.length;
-  const src = encryptEls.input.value || 'ENIGMA IS FUN';
-  encryptEls.input.value = src;
-  const first = src.slice(0,n);
-  if(first.length < n){
-    showToast('デモ用にブロック長以上の文字を入れてください', 'danger');
-    return;
-  }
-  const padChar = (encryptEls.padChar.value || '').slice(0,1) || '';
-  const padEnable = encryptEls.padEnable.checked;
-  const output = applyPermutation(src, currentKey, padChar, padEnable);
-  encryptEls.output.value = output;
-
-  // Animate table
-  const tbody = encryptEls.mapBody;
-  tbody.innerHTML = '';
-  for(let i=0;i<n;i++){
-    const tr = document.createElement('tr');
-    const td1 = document.createElement('td');
-    td1.textContent = String(i+1);
-    const td2 = document.createElement('td');
-    td2.textContent = first[i] || '';
-    const td3 = document.createElement('td');
-    td3.textContent = '';
-    tr.append(td1, td2, td3);
-    tbody.appendChild(tr);
-  }
-  let k = 0;
-  const timer = setInterval(()=>{
-    if(k>=n){
-      clearInterval(timer);
-      renderMapTable(tbody, first, output.slice(0,n),'forward');
+  $('#keygen-random').addEventListener('click', () => {
+    const n = readLength();
+    let perm;
+    try {
+      perm = Core.randomPermutation(n, buf => window.crypto.getRandomValues(buf));
+    } catch {
+      showToast(t('toast.noCrypto'), 'danger');
       return;
     }
-    const to = currentKey[k]-1;
-    const row = tbody.children[k];
-    if(row){
-      row.cells[2].textContent = output[to];
-      row.style.background = '#e0f2fe';
-      setTimeout(()=> row.style.background='', 260);
+    setKey(perm);
+    showToast(t('toast.random', { n }), 'success');
+  });
+
+  function applyManual() {
+    const res = Core.parseKey($('#keygen-manual').value, state.direction);
+    if (!res.ok) {
+      showInlineError('#keygen-manual-error', describe(res.error));
+      return;
     }
-    k++;
-  }, 220);
-});
-
-/* ============================================================================
- * DECRYPTION TAB
- * ============================================================================
- * Features:
- * - Automatic inverse permutation calculation
- * - Padding trim (optional)
- * - Mapping table (ciphertext → plaintext)
- * ============================================================================ */
-
-const decryptEls = {
-  input: $('#decrypt-input'),
-  padChar: $('#decrypt-pad-char'),
-  padTrim: $('#decrypt-pad-trim'),
-  run: $('#decrypt-run'),
-  output: $('#decrypt-output'),
-  copy: $('#decrypt-copy'),
-  mapBody: $('#decrypt-map tbody'),
-};
-
-decryptEls.run.addEventListener('click', ()=>{
-  if(!currentKey){
-    showToast('鍵生成タブで鍵を生成してください', 'danger');
-    return;
+    showInlineError('#keygen-manual-error', '');
+    setKey(res.perm);
+    showToast(t('toast.applied', { n: res.perm.length }), 'success');
   }
-  const inv = inversePermutation(currentKey);
-  const input = decryptEls.input.value;
-  const out = applyPermutation(input, inv, '', false);
-  const result = decryptEls.padTrim.checked ? trimRightPad(out, decryptEls.padChar.value.slice(0,1)||'') : out;
-  decryptEls.output.value = result;
 
-  // Map table for first block preview
-  const n = currentKey.length;
-  const firstIn = input.slice(0,n);
-  const firstOut = result.slice(0,n);
-  renderMapTable(decryptEls.mapBody, firstOut, firstIn, 'reverse');
+  $('#keygen-validate').addEventListener('click', applyManual);
+  $('#keygen-manual').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing) {
+      e.preventDefault();
+      applyManual();
+    }
+  });
 
-  showToast('復号を実行しました', 'success');
-});
+  $('#key-copy').addEventListener('click', () => copyText(keyText()));
 
-decryptEls.copy.addEventListener('click', async ()=>{
-  try{
-    await navigator.clipboard.writeText(decryptEls.output.value || '');
-    showToast('平文をコピーしました', 'success');
-  }catch{
-    showToast('コピー失敗', 'danger');
+  /* ========== 並べ替え（タップで2つを入れ替え／キーボード／マウスのドラッグ） ========== */
+  const editorList = $('#keygen-draggable');
+  const editorStatus = $('#keygen-drag-status');
+  let dragFrom = null;
+
+  function editorValues() {
+    return Core.toNotation(state.key, state.direction);
   }
-});
 
-/* ============================================================================
- * Initialization - Default Values
- * ============================================================================ */
+  function renderEditor(focusIndex = null) {
+    const values = editorValues();
+    editorList.replaceChildren();
+    values.forEach((value, i) => {
+      const li = document.createElement('li');
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chip-btn';
+      btn.textContent = String(value);
+      btn.dataset.index = String(i);
+      btn.draggable = true;
+      btn.setAttribute('aria-pressed', String(state.editorSelected === i));
+      btn.setAttribute('aria-label', t('editor.chipLabel', { pos: i + 1, value }));
+      li.append(btn);
+      editorList.append(li);
+    });
+    if (focusIndex !== null) editorList.querySelector(`[data-index="${focusIndex}"]`)?.focus();
+  }
 
-/**
- * Set default values for demo purposes
- */
-(function initDefaults(){
-  encryptEls.input.value = 'ENIGMA IS FUN';
-  decryptEls.input.value = 'IEGN';
-  // Set default key
-  updateCurrentKey([3,1,4,2]);
+  function applyValues(values) {
+    setKey(Core.fromNotation(values, state.direction));
+  }
+
+  function swapChips(a, b) {
+    const values = editorValues();
+    [values[a], values[b]] = [values[b], values[a]];
+    state.editorSelected = null;
+    applyValues(values);
+    renderEditor(b);
+    editorStatus.textContent = t('editor.swapped', { a: values[b], b: values[a], key: keyText() });
+  }
+
+  function moveChip(from, to) {
+    const values = editorValues();
+    [values[from], values[to]] = [values[to], values[from]];
+    state.editorSelected = to;
+    applyValues(values);
+    renderEditor(to);
+    editorStatus.textContent = t('editor.moved', { value: values[to], pos: to + 1, key: keyText() });
+  }
+
+  const chipIndex = (target) => {
+    const btn = target.closest('.chip-btn');
+    return btn ? Number(btn.dataset.index) : null;
+  };
+
+  editorList.addEventListener('click', (e) => {
+    const i = chipIndex(e.target);
+    if (i === null) return;
+    if (state.editorSelected === null) {
+      state.editorSelected = i;
+      renderEditor(i);
+      editorStatus.textContent = t('editor.selected', { value: editorValues()[i] });
+    } else if (state.editorSelected === i) {
+      state.editorSelected = null;
+      renderEditor(i);
+      editorStatus.textContent = t('editor.cancelled');
+    } else {
+      swapChips(state.editorSelected, i);
+    }
+  });
+
+  editorList.addEventListener('keydown', (e) => {
+    const i = chipIndex(e.target);
+    if (i === null) return;
+    const n = state.key.length;
+    if (e.key === 'Escape' && state.editorSelected !== null) {
+      state.editorSelected = null;
+      renderEditor(i);
+      editorStatus.textContent = t('editor.cancelled');
+      return;
+    }
+    const delta = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+    if (!delta) return;
+    e.preventDefault();
+    const j = i + delta;
+    if (j < 0 || j >= n) return;
+    if (state.editorSelected === i) moveChip(i, j);
+    else editorList.querySelector(`[data-index="${j}"]`)?.focus();
+  });
+
+  editorList.addEventListener('dragstart', (e) => {
+    const i = chipIndex(e.target);
+    if (i === null) return;
+    dragFrom = i;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(i));
+  });
+  editorList.addEventListener('dragover', (e) => {
+    if (dragFrom !== null) e.preventDefault();
+  });
+  editorList.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const j = chipIndex(e.target);
+    const i = dragFrom;
+    dragFrom = null;
+    if (i === null || j === null || i === j) return;
+    swapChips(i, j);
+  });
+  editorList.addEventListener('dragend', () => { dragFrom = null; });
+
+  $('#keygen-visual').addEventListener('click', (e) => {
+    state.editorOpen = !state.editorOpen;
+    state.editorSelected = null;
+    $('#keygen-draggable-wrap').hidden = !state.editorOpen;
+    e.currentTarget.setAttribute('aria-expanded', String(state.editorOpen));
+    e.currentTarget.textContent = t(state.editorOpen ? 'editor.close' : 'editor.open');
+    editorStatus.textContent = '';
+    if (state.editorOpen) renderEditor();
+  });
+
+  /* ==========================================================================
+   * localStorage Pattern Management（保存した鍵）
+   * ========================================================================== */
+  function loadSaved() {
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      state.storageOk = true;
+      if (!raw) return { items: [], dropped: 0 };
+      return Core.sanitizeSaved(JSON.parse(raw));
+    } catch {
+      state.storageOk = false;
+      return { items: [], dropped: 0 };
+    }
+  }
+
+  function writeSaved(items) {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+      return true;
+    } catch {
+      showToast(t('toast.saveFailed'), 'danger');
+      return false;
+    }
+  }
+
+  function renderSaved() {
+    const container = $('#key-saved-list');
+    const note = $('#key-saved-note');
+    const { items, dropped } = loadSaved();
+    container.replaceChildren();
+    if (!state.storageOk) {
+      note.textContent = t('saved.unavailable');
+      note.hidden = false;
+    } else if (dropped) {
+      note.textContent = t('saved.dropped', { count: dropped });
+      note.hidden = false;
+    } else {
+      note.hidden = true;
+    }
+    if (!items.length) {
+      const p = document.createElement('p');
+      p.className = 'muted';
+      p.textContent = t('saved.none');
+      container.append(p);
+      return;
+    }
+    for (const item of items) {
+      const perm = Core.parseKey(item.pattern, 'to').perm;
+      const chip = document.createElement('div');
+      chip.className = 'chip';
+      const load = document.createElement('button');
+      load.type = 'button';
+      load.className = 'chip-load';
+      load.textContent = item.name;
+      load.title = keyText(perm);
+      load.addEventListener('click', () => {
+        setKey(perm);
+        showToast(t('toast.loaded', { name: item.name }), 'success');
+      });
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'chip-del';
+      del.textContent = '✕';
+      del.setAttribute('aria-label', t('saved.delete', { name: item.name }));
+      del.addEventListener('click', () => {
+        const rest = loadSaved().items.filter(x => x.name !== item.name);
+        if (writeSaved(rest)) showToast(t('toast.deleted', { name: item.name }), 'danger');
+        renderSaved();
+      });
+      chip.append(load, del);
+      container.append(chip);
+    }
+  }
+
+  $('#key-save').addEventListener('click', () => {
+    const name = $('#key-save-name').value.trim();
+    if (!name) { showToast(t('toast.nameRequired'), 'danger'); return; }
+    if (name.length > 60) { showToast(t('toast.nameTooLong'), 'danger'); return; }
+    const items = loadSaved().items;
+    if (!state.storageOk) { showToast(t('saved.unavailable'), 'danger'); return; }
+    const pattern = Core.formatKey(state.key, 'to');
+    const existing = items.find(x => x.name === name);
+    if (existing) existing.pattern = pattern;
+    else items.push({ name, pattern });
+    if (writeSaved(items)) showToast(t('toast.saved', { name }), 'success');
+    renderSaved();
+  });
+
+  /* ==========================================================================
+   * ENCRYPTION / DECRYPTION（入力が変わるたびに計算し直す）
+   * ========================================================================== */
+  function readPad(prefix) {
+    const res = Core.validatePadChar($(`#${prefix}-pad-char`).value);
+    showInlineError(`#${prefix}-pad-error`, res.ok ? '' : describe(res.error));
+    return res;
+  }
+
+  function recompute() {
+    computeEncrypt();
+    computeDecrypt();
+  }
+
+  function computeEncrypt() {
+    const pad = readPad('encrypt');
+    if (!pad.ok) {
+      state.enc.result = null;
+      $('#encrypt-output').value = '';
+      renderNotes($('#encrypt-notes'), []);
+    } else {
+      const res = Core.encrypt($('#encrypt-input').value, state.key, {
+        pad: $('#encrypt-pad-enable').checked,
+        padChar: pad.padChar,
+      });
+      state.enc.result = res;
+      $('#encrypt-output').value = res.output;
+      renderNotes($('#encrypt-notes'), res.notes);
+    }
+    const total = state.enc.result ? state.enc.result.blocks.length : 0;
+    state.enc.block = Math.min(state.enc.block, Math.max(0, total - 1));
+    renderEncryptBlock();
+  }
+
+  function computeDecrypt() {
+    const pad = readPad('decrypt');
+    if (!pad.ok) {
+      state.dec.result = null;
+      $('#decrypt-output').value = '';
+      renderNotes($('#decrypt-notes'), []);
+    } else {
+      const res = Core.decrypt($('#decrypt-input').value, state.key, {
+        trimPad: $('#decrypt-pad-trim').checked,
+        padChar: pad.padChar,
+      });
+      state.dec.result = res;
+      $('#decrypt-output').value = res.output;
+      renderNotes($('#decrypt-notes'), res.notes);
+    }
+    const total = state.dec.result ? state.dec.result.blocks.length : 0;
+    state.dec.block = Math.min(state.dec.block, Math.max(0, total - 1));
+    renderDecryptBlock();
+  }
+
+  function renderNav(prefix, index, total) {
+    $(`#${prefix}-block-indicator`).textContent = total ? t('block.indicator', { index: index + 1, total }) : t('block.empty');
+    $(`#${prefix}-block-prev`).disabled = index <= 0;
+    $(`#${prefix}-block-next`).disabled = index >= total - 1;
+  }
+
+  function fillTable(tbody, rows) {
+    tbody.replaceChildren();
+    if (!rows.length) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 3;
+      td.className = 'muted';
+      td.textContent = t('table.empty');
+      tr.append(td);
+      tbody.append(tr);
+      return;
+    }
+    for (const cells of rows) {
+      const tr = document.createElement('tr');
+      for (const value of cells) {
+        const td = document.createElement('td');
+        td.textContent = value;
+        tr.append(td);
+      }
+      tbody.append(tr);
+    }
+  }
+
+  const shown = (ch) => Wiring.displayChar(ch).text;
+
+  /* ---------- 暗号化のブロック（線を1本ずつ引ける） ---------- */
+  function renderEncryptBlock() {
+    const res = state.enc.result;
+    const blocks = res ? res.blocks : [];
+    const n = state.key.length;
+    const index = state.enc.block;
+    renderNav('encrypt', index, blocks.length);
+    const svg = $('#encrypt-wiring');
+    const note = $('#encrypt-block-note');
+    const block = blocks[index];
+    if (!block) {
+      svg.replaceChildren();
+      note.hidden = true;
+      fillTable($('#encrypt-map tbody'), []);
+      renderSteps(0, 0, false);
+      return;
+    }
+    if (!block.permuted) {
+      note.textContent = t('block.keptNote');
+      note.hidden = false;
+      Wiring.render(svg, {
+        n: block.plain.length,
+        top: block.plain,
+        bottom: block.cipher,
+        links: [],
+        topTitle: t('wiring.plain'),
+        bottomTitle: t('wiring.cipher'),
+        label: t('block.keptNote'),
+      });
+      fillTable($('#encrypt-map tbody'), block.plain.map((ch, i) => [String(i + 1), shown(ch), String(i + 1)]));
+      renderSteps(0, 0, false);
+      return;
+    }
+    note.textContent = block.padCount ? t('block.padNote', { count: block.padCount }) : '';
+    note.hidden = !block.padCount;
+    const step = state.enc.step ?? n;
+    const links = state.key.map((to, i) => [i, to - 1]);
+    const pairs = links.map(([a, b]) => t('wiring.pair', { from: a + 1, to: b + 1 })).join(', ');
+    Wiring.render(svg, {
+      n,
+      top: block.plain,
+      bottom: Core.partialBlock(block.plain, state.key, step),
+      links,
+      drawn: step,
+      topTitle: t('wiring.plain'),
+      bottomTitle: t('wiring.cipher'),
+      label: n <= 16 ? t('wiring.keyLabel', { list: pairs }) : t('wiring.keyLabelLong', { n }),
+    });
+    fillTable($('#encrypt-map tbody'), block.plain.map((ch, i) => [String(i + 1), shown(ch), String(state.key[i])]));
+    renderSteps(step, n, true);
+  }
+
+  function renderSteps(step, n, enabled) {
+    $('#encrypt-step-status').textContent = enabled ? t('step.status', { n, k: step }) : '';
+    $('#encrypt-step-reset').disabled = !enabled || step === 0;
+    $('#encrypt-step-back').disabled = !enabled || step === 0;
+    $('#encrypt-step-next').disabled = !enabled || step >= n;
+    $('#encrypt-step-all').disabled = !enabled || step >= n;
+    const play = $('#encrypt-step-play');
+    play.disabled = !enabled;
+    play.textContent = t(state.enc.timer ? 'step.stop' : 'step.play');
+    play.setAttribute('aria-pressed', String(Boolean(state.enc.timer)));
+  }
+
+  function setStep(step) {
+    const n = state.key.length;
+    state.enc.step = Math.max(0, Math.min(n, step));
+    renderEncryptBlock();
+  }
+
+  function stopPlay() {
+    if (state.enc.timer) {
+      clearInterval(state.enc.timer);
+      state.enc.timer = null;
+    }
+  }
+
+  $('#encrypt-step-reset').addEventListener('click', () => { stopPlay(); setStep(0); });
+  $('#encrypt-step-back').addEventListener('click', () => { stopPlay(); setStep((state.enc.step ?? state.key.length) - 1); });
+  $('#encrypt-step-next').addEventListener('click', () => { stopPlay(); setStep((state.enc.step ?? state.key.length) + 1); });
+  $('#encrypt-step-all').addEventListener('click', () => { stopPlay(); setStep(state.key.length); });
+  $('#encrypt-step-play').addEventListener('click', () => {
+    if (state.enc.timer) {
+      stopPlay();
+      renderEncryptBlock();
+      return;
+    }
+    const n = state.key.length;
+    if ((state.enc.step ?? n) >= n) state.enc.step = 0;
+    state.enc.timer = setInterval(() => {
+      const next = (state.enc.step ?? n) + 1;
+      if (next >= n) stopPlay();
+      setStep(next);
+    }, STEP_INTERVAL);
+    renderEncryptBlock();
+  });
+
+  function changeEncryptBlock(delta) {
+    const total = state.enc.result ? state.enc.result.blocks.length : 0;
+    const next = state.enc.block + delta;
+    if (next < 0 || next >= total) return;
+    stopPlay();
+    state.enc.block = next;
+    state.enc.step = null;
+    renderEncryptBlock();
+  }
+
+  $('#encrypt-block-prev').addEventListener('click', () => changeEncryptBlock(-1));
+  $('#encrypt-block-next').addEventListener('click', () => changeEncryptBlock(1));
+
+  /* ---------- 復号のブロック ---------- */
+  function renderDecryptBlock() {
+    const res = state.dec.result;
+    const blocks = res ? res.blocks : [];
+    const index = state.dec.block;
+    renderNav('decrypt', index, blocks.length);
+    const svg = $('#decrypt-wiring');
+    const note = $('#decrypt-block-note');
+    const block = blocks[index];
+    if (!block) {
+      svg.replaceChildren();
+      note.hidden = true;
+      fillTable($('#decrypt-map tbody'), []);
+      return;
+    }
+    if (!block.permuted) {
+      note.textContent = t('block.keptNote');
+      note.hidden = false;
+      Wiring.render(svg, {
+        n: block.cipher.length,
+        top: block.cipher,
+        bottom: block.plain,
+        links: [],
+        topTitle: t('wiring.cipher'),
+        bottomTitle: t('wiring.plain'),
+        label: t('block.keptNote'),
+      });
+      fillTable($('#decrypt-map tbody'), block.cipher.map((ch, i) => [String(i + 1), shown(ch), String(i + 1)]));
+      return;
+    }
+    note.hidden = true;
+    const inv = Core.inversePermutation(state.key);
+    const n = inv.length;
+    const links = inv.map((to, j) => [j, to - 1]);
+    const pairs = links.map(([a, b]) => t('wiring.pair', { from: a + 1, to: b + 1 })).join(', ');
+    Wiring.render(svg, {
+      n,
+      top: block.cipher,
+      bottom: block.plain,
+      links,
+      topTitle: t('wiring.cipher'),
+      bottomTitle: t('wiring.plain'),
+      label: n <= 16 ? t('wiring.keyLabel', { list: pairs }) : t('wiring.keyLabelLong', { n }),
+    });
+    fillTable($('#decrypt-map tbody'), block.cipher.map((ch, j) => [String(j + 1), shown(ch), String(inv[j])]));
+  }
+
+  function changeDecryptBlock(delta) {
+    const total = state.dec.result ? state.dec.result.blocks.length : 0;
+    const next = state.dec.block + delta;
+    if (next < 0 || next >= total) return;
+    state.dec.block = next;
+    renderDecryptBlock();
+  }
+
+  $('#decrypt-block-prev').addEventListener('click', () => changeDecryptBlock(-1));
+  $('#decrypt-block-next').addEventListener('click', () => changeDecryptBlock(1));
+
+  /* ---------- 入力の変更 ---------- */
+  function onEncryptInput() {
+    stopPlay();
+    state.enc.step = null;
+    computeEncrypt();
+  }
+
+  for (const sel of ['#encrypt-input', '#encrypt-pad-char']) $(sel).addEventListener('input', onEncryptInput);
+  $('#encrypt-pad-enable').addEventListener('change', onEncryptInput);
+  for (const sel of ['#decrypt-input', '#decrypt-pad-char']) $(sel).addEventListener('input', computeDecrypt);
+  $('#decrypt-pad-trim').addEventListener('change', computeDecrypt);
+
+  for (const item of $$('.preset-item')) {
+    item.addEventListener('click', () => {
+      $('#encrypt-input').value = item.dataset.text || '';
+      item.closest('details').open = false;
+      state.enc.block = 0;
+      onEncryptInput();
+      showToast(t('toast.example'), 'success');
+    });
+  }
+
+  $('#encrypt-copy').addEventListener('click', () => copyText($('#encrypt-output').value));
+  $('#decrypt-copy').addEventListener('click', () => copyText($('#decrypt-output').value));
+
+  $('#encrypt-to-decrypt').addEventListener('click', () => {
+    const ciphertext = $('#encrypt-output').value;
+    if (!ciphertext) {
+      showToast(t('toast.noCiphertext'), 'danger');
+      return;
+    }
+    $('#decrypt-input').value = ciphertext;
+    $('#decrypt-pad-char').value = $('#encrypt-pad-char').value;
+    $('#decrypt-pad-trim').checked = $('#encrypt-pad-enable').checked;
+    state.dec.block = 0;
+    computeDecrypt();
+    activateTab('decrypt');
+    showToast(t('toast.sentToDecrypt'), 'success');
+  });
+
+  /* ==========================================================================
+   * Initialization - Default Values
+   * ========================================================================== */
+  $('#encrypt-input').value = 'ENIGMA IS FUN';
+  $('#decrypt-input').value = 'NGEI';
+  const checked = $('input[name="key-direction"]:checked');
+  state.direction = checked && checked.value === 'from' ? 'from' : 'to';
+  activateTab('keygen');
+  setKey([3, 1, 4, 2]);
 })();

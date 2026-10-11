@@ -50,14 +50,14 @@
           <legend>鍵の書き方（向き）</legend>
           <label class="radio">
             <input type="radio" name="key-direction" value="to" checked />
-            <span><strong>送る向き</strong>：平文の i 文字目を、暗号文の位置 p[i] へ送る（本ツールの既定）</span>
+            <span><strong>送る向き</strong>：平文のi文字目を、暗号文の位置p[i]へ送る（本ツールの既定）</span>
           </label>
           <label class="radio">
             <input type="radio" name="key-direction" value="from" />
-            <span><strong>取り出す向き</strong>：暗号文の i 文字目を、平文の p[i] 文字目から取る（Stinson の教科書・dCode の書き方）</span>
+            <span><strong>取り出す向き</strong>：暗号文のi文字目を、平文のp[i]文字目から取る（Stinsonの教科書・dCodeの書き方）</span>
           </label>
           <p class="info-note">
-            同じ並べ替えを2通りに書けます。3-1-4-2（送る向き）と 2-4-1-3（取り出す向き）は同じ鍵で、どちらも ENIG を NGEI にします。
+            同じ並べ替えを2通りに書けます。3-1-4-2（送る向き）と2-4-1-3（取り出す向き）は同じ鍵で、どちらもENIGをNGEIにします。
             切り替えても鍵そのものは変わらず、数字の書き方だけが変わります。
           </p>
         </fieldset>
@@ -97,7 +97,7 @@
 
           <div class="method-card">
             <h4>✏️ 数字で入力する</h4>
-            <p>数字を「-」「,」や空白で区切って入力し、Enter か「適用」で設定します。いま選んでいる向きで読みます。</p>
+            <p>数字を「-」「,」や空白で区切って入力し、Enterか「適用」で設定します。いま選んでいる向きで読みます。</p>
             <div class="row">
               <label for="keygen-manual" class="visually-hidden">鍵の数字</label>
               <input id="keygen-manual" type="text" placeholder="例）3-1-4-2" autocomplete="off" spellcheck="false" />
@@ -110,7 +110,7 @@
             <h4>🎨 並べ替えて作る</h4>
             <p>
               今の鍵の数字を並べ替えます。2つを順に選ぶと入れ替わり、すぐに鍵へ反映します。
-              キーボードでは、数字を選んで Enter か Space を押し、← → で動かします。
+              キーボードでは、数字を選んでEnterかSpaceを押し、← → で動かします。
             </p>
             <button type="button" class="btn" id="keygen-visual" aria-expanded="false" aria-controls="keygen-draggable-wrap">並べ替えを開く</button>
             <div id="keygen-draggable-wrap" class="draggable-wrap" hidden>
@@ -127,9 +127,9 @@
             <button type="button" class="btn ghost" id="key-copy" disabled>コピー</button>
           </div>
           <dl class="key-facts">
-            <div><dt>送る向き</dt><dd id="key-to">—</dd></div>
-            <div><dt>取り出す向き</dt><dd id="key-from">—</dd></div>
-            <div><dt>ブロックの文字数</dt><dd id="key-length">—</dd></div>
+            <div><dt>送る向き</dt><dd id="key-to">未設定</dd></div>
+            <div><dt>取り出す向き</dt><dd id="key-from">未設定</dd></div>
+            <div><dt>ブロックの文字数</dt><dd id="key-length">未設定</dd></div>
           </dl>
           <p class="key-info">取り出す向きの数字は、送る向きで書いた復号の鍵（逆の順列）と同じです。鍵は暗号化・復号タブでそのまま使います。</p>
 
@@ -145,7 +145,7 @@
 
         <div class="key-management">
           <h3>鍵の保存と管理</h3>
-          <p class="key-info">このブラウザーの localStorage に保存します（送る向きで保存）。秘密の鍵は保存しないでください。</p>
+          <p class="key-info">このブラウザーのlocalStorageに保存します（送る向きで保存）。秘密の鍵は保存しないでください。</p>
           <div class="row">
             <label for="key-save-name" class="visually-hidden">保存名</label>
             <input id="key-save-name" type="text" maxlength="60" placeholder="保存名（例：demo-key-1）" autocomplete="off" />
@@ -246,7 +246,7 @@
 
           <div class="key-info-box">
             <p><strong>使用中の鍵（<span class="key-direction-name">送る向き</span>）：</strong><span id="decrypt-key-display">未設定</span></p>
-            <p>復号では逆の順列 <span id="decrypt-inverse-display" class="mono">—</span>（送る向き）で並べ戻します。</p>
+            <p>復号では逆の順列<span id="decrypt-inverse-display" class="mono">未設定</span>（送る向き）で並べ戻します。</p>
             <p class="block-size-info" id="decrypt-block-info"></p>
           </div>
 
@@ -343,16 +343,16 @@
             <summary><h3>🔑 転置暗号の基本原理</h3></summary>
           <p>
             転置暗号は<strong>順列（permutation）</strong>を鍵として使用します。
-            例えば、パターン <code>3-1-4-2</code> は「1番目の文字を3番目の位置へ、2番目の文字を1番目の位置へ…」という変換ルールを表します。
+            たとえば、パターン<code>3-1-4-2</code>は「1番目の文字を3番目の位置へ、2番目の文字を1番目の位置へ…」という変換ルールを表します。
           </p>
           <p>
-            この書き方を本ツールでは<strong>送る向き</strong>と呼びます。逆に「暗号文の i 文字目を平文の何文字目から取るか」を並べる<strong>取り出す向き</strong>もあり、
-            同じ並べ替えは <code>2-4-1-3</code> と書きます。Stinson の教科書『Cryptography: Theory and Practice』や dCode は取り出す向き、CrypTool 2 は送る向きで、
-            資料によって違います。鍵の数字だけを渡すと、受け取った側が逆に読んで別の暗号文になることがあります（Gaines『Elementary Cryptanalysis』1939 も両方の使い方を挙げています）。
+            この書き方を本ツールでは<strong>送る向き</strong>と呼びます。逆に「暗号文のi文字目を平文の何文字目から取るか」を並べる<strong>取り出す向き</strong>もあり、
+            同じ並べ替えは<code>2-4-1-3</code>と書きます。Stinsonの教科書『Cryptography: Theory and Practice』やdCodeは取り出す向き、CrypTool 2は送る向きで、
+            資料によって違います。鍵の数字だけを渡すと、受け取った側が逆に読んで別の暗号文になることがあります（Gaines『Elementary Cryptanalysis』1939も両方の使い方を挙げています）。
             鍵生成タブの切り替えで、どちらの書き方でも入力・表示できます。
           </p>
           <div class="example-box">
-            <h4>具体例：パターン 3-1-4-2</h4>
+            <h4>具体例：パターン3-1-4-2</h4>
             <table class="example-table">
               <tr>
                 <th>元の位置</th>
@@ -416,8 +416,8 @@
             </div>
           </div>
           <p>
-            埋字と平文の末尾の文字は、暗号文からは見分けられません。たとえば <code>TAX</code> を埋字 X で暗号化すると <code>AXTX</code> になり、
-            復号で末尾の X を除くと <code>TA</code> まで削れてしまいます。平文の末尾が埋字と同じ文字なら、本ツールは暗号化のときに知らせます。埋字を別の文字（Q など）にすると避けられます。
+            埋字と平文の末尾の文字は、暗号文からは見分けられません。たとえば<code>TAX</code>を埋字Xで暗号化すると<code>AXTX</code>になり、
+            復号で末尾のXを除くと<code>TA</code>まで削れてしまいます。平文の末尾が埋字と同じ文字なら、本ツールは暗号化のときに知らせます。埋字を別の文字（Qなど）にすると避けられます。
           </p>
           </details>
         </div>
@@ -474,7 +474,7 @@
               <h4>💪 強み</h4>
               <ul>
                 <li>実装が単純で高速</li>
-                <li>ブロックの長さ n に対して鍵は n! 通り（n=16 で約 2<sup>44</sup>、n=20 で約 2<sup>61</sup>）</li>
+                <li>ブロックの長さnに対して鍵はn!通り（n=16で約2<sup>44</sup>、n=20で約2<sup>61</sup>）</li>
                 <li>置換暗号と組み合わせることで強固になる</li>
               </ul>
             </div>
@@ -484,7 +484,7 @@
                 <li>文字の頻度分布が変化しないため、アナグラム解析が可能</li>
                 <li>短いブロックでは総当たり攻撃が容易</li>
                 <li>既知平文攻撃に対して脆弱（平文と暗号文の1ブロックで、同じ文字がなければ鍵が1つに決まる）</li>
-                <li>どのブロックも同じ鍵なので、ブロックを縦に並べて列を並べ替える方法（多重アナグラム）で、鍵を知らなくても解ける。鍵の数の多さと安全性は別</li>
+                <li>どのブロックも同じ鍵なので、ブロックを縦に並べて列を並べ替える方法（多重アナグラム）で、鍵を知らなくても解読が可能（鍵の数が多くても安全とは限らない）</li>
                 <li>単独では現代の暗号として不十分</li>
               </ul>
             </div>
@@ -551,7 +551,7 @@
 
   <footer>
     <div class="footer">
-      🔗 <a href="https://github.com/ipusiron/permutation-cipherlab" target="_blank" rel="noopener noreferrer">GitHubリポジトリー：ipusiron/permutation-cipherlab</a>
+      🔗 <a href="https://github.com/ipusiron/permutation-cipherlab" target="_blank" rel="noopener noreferrer">GitHubリポジトリ：ipusiron/permutation-cipherlab</a>
     </div>
   </footer>
 

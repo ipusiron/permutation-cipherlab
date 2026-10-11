@@ -1,601 +1,283 @@
 # 実装詳細ドキュメント（開発者向け）
 
-本ドキュメントでは、Permutation CipherLab の技巧的な実装、コアロジック、工夫した部分を解説します。
+Permutation CipherLabの計算の方法、画面の組み立て、安全対策、テストを説明します。README.mdが利用者向けの説明、このファイルが開発者向けの説明です。
 
 ---
 
 ## 📋 目次
 
-1. [コアアルゴリズム](#コアアルゴリズム)
-2. [順列パターンの検証](#順列パターンの検証)
-3. [逆転置の計算](#逆転置の計算)
-4. [ブロック暗号化処理](#ブロック暗号化処理)
-5. [ビジュアル編集機能](#ビジュアル編集機能)
-6. [ブロック間ナビゲーション](#ブロック間ナビゲーション)
-7. [アニメーション機能](#アニメーション機能)
-8. [セキュリティ対策](#セキュリティ対策)
-9. [localStorage 管理](#localstorage-管理)
+1. [ファイルの役割](#ファイルの役割)
+2. [鍵の表し方と向き](#鍵の表し方と向き)
+3. [鍵の読み取りと検証](#鍵の読み取りと検証)
+4. [逆の順列と合成](#逆の順列と合成)
+5. [暗号化と復号](#暗号化と復号)
+6. [埋字の扱い](#埋字の扱い)
+7. [乱数で鍵を作る](#乱数で鍵を作る)
+8. [画面の状態と自動の計算](#画面の状態と自動の計算)
+9. [配線図と1本ずつ引く操作](#配線図と1本ずつ引く操作)
+10. [並べ替えの操作](#並べ替えの操作)
+11. [保存した鍵](#保存した鍵)
+12. [安全対策](#安全対策)
+13. [計算量](#計算量)
+14. [テスト](#テスト)
+15. [参考文献](#参考文献)
 
 ---
 
-## コアアルゴリズム
+## ファイルの役割
 
-### Fisher-Yates シャッフル
+| ファイル | 役割 |
+|---|---|
+| `js/permutation-core.js` | 計算部。鍵の読み取り・検証、向きの変換、暗号化・復号、埋字、乱数、途中経過、合成、保存データの検証。DOMに依存せず、Node.jsのテストからも読める |
+| `js/messages.js` | JavaScriptが出す文言の辞書。計算部は文言を持たず`{ key, params }`を返し、表示の直前にここで文にする |
+| `js/wiring.js` | 配線図（SVG）を描く。属性とクラスだけで組み立てる |
+| `script.js` | 画面の制御。状態を1か所に持ち、入力が変わるたびに計算し直して描き直す |
+| `index.html` | 4つのタブ（鍵生成・暗号化・復号・座学） |
+| `style.css` | 配色の変数（`:root`）と部品のスタイル |
 
-ランダムな順列生成には、**Fisher-Yates アルゴリズム** を採用しています。
-
-**実装箇所**: `script.js:266-274`
+`js/*.js`はES Modulesではなく、通常の`<script>`で読みます。`type="module"`にすると、`index.html`を直接開いたとき（`file://`）にブラウザーが読み込みを拒むためです。各ファイルは即時関数で囲み、ブラウザーでは`window.PermutationCore`・`window.PclMessages`・`window.PclWiring`に、Node.jsでは`module.exports`に公開します。
 
 ```javascript
-function generateRandomPermutation(n){
-  const arr = Array.from({length:n}, (_,i)=>i+1);
-  // Fisher-Yates shuffle
-  for(let i=n-1; i>0; i--){
-    const j = Math.floor(Math.random()*(i+1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
+(function (root) {
+  'use strict';
+  // …
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.PermutationCore = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
 ```
-
-**特徴**:
-- **一様分布**: すべての順列が等確率で生成される（n! 通りすべて）
-- **時間計算量**: O(n)
-- **in-place**: 追加のメモリを消費しない
-
-**数学的保証**:
-- ループ不変条件: i ステップ目で配列の `[i+1, n)` は確定済みの順列
-- 各 i について j ∈ [0, i] から一様ランダムに選択することで、全順列が等確率で生成される
 
 ---
 
-## 順列パターンの検証
+## 鍵の表し方と向き
 
-### 多段階検証システム
-
-ユーザー入力されたパターンを厳密に検証し、不正な入力を明確なエラーメッセージで排除します。
-
-**実装箇所**: `script.js:94-164`
-
-#### 1. パース段階（`parsePattern`）
-
-複数区切り文字に対応した柔軟なパース処理:
+内部では、鍵を「送る向き」の配列`p`（1始まり）で持ちます。平文のブロックの`i`文字目（0始まり）を、暗号文の位置`p[i]`（1始まり）へ送ります。
 
 ```javascript
-const parts = trimmed.split(/[\s,\-，、]+/).filter(Boolean);
-```
-
-**対応する区切り文字**:
-- ハイフン: `-`
-- スペース: ` `
-- カンマ: `,`
-- 全角カンマ: `，`
-- 読点: `、`
-
-**エッジケース対応**:
-```javascript
-// 末尾の区切り文字を検出して拒否（例: "1-2-3-"）
-if(/[\s,\-，、]$/.test(trimmed)){
-  return null;
+function permuteBlock(units, perm) {
+  const out = new Array(perm.length);
+  for (let i = 0; i < perm.length; i++) out[perm[i] - 1] = units[i];
+  return out;
 }
 ```
 
-#### 2. 検証段階（`validatePermutation`）
-
-**検証項目**:
-
-| 検証 | 説明 | エラー例 |
-|------|------|---------|
-| 長さチェック | 2文字以上必須 | `[1]` → エラー |
-| 正整数チェック | 1以上の整数のみ | `[0, 1, 2]` → エラー |
-| 範囲チェック | 1〜n の値のみ許可 | `[1, 2, 5]` (n=3) → 「5 は範囲外」 |
-| 重複検出 | 同じ値の重複を禁止 | `[1, 2, 2, 3]` → 「2 が重複」 |
-| 欠損検出 | 1〜n すべてが必要 | `[1, 3, 4]` (n=3) → 「2 が不足」 |
-
-**実装のポイント**:
+「取り出す向き」の数字`q`は、暗号文の`i`文字目を平文の`q[i]`文字目から取ることを表します。同じ並べ替えなら`q`は`p`の逆の順列です。画面で向きを切り替えても内部の`p`は変えず、表示と入力のときだけ変換します。
 
 ```javascript
-// 重複検出: Set のサイズで判定
-const set = new Set(perm);
-if(set.size !== n) {
-  const duplicates = perm.filter((val, idx) => perm.indexOf(val) !== idx);
-  return {ok:false, msg:`重複があります: ${[...new Set(duplicates)].join(', ')}`};
+function fromNotation(values, direction) {   // 書かれた数字 → 内部の p
+  return direction === 'from' ? inversePermutation(values) : values.slice();
 }
-
-// 欠損検出: 1〜n を走査
-const missing = [];
-for(let i=1; i<=n; i++){
-  if(!set.has(i)) missing.push(i);
+function toNotation(perm, direction) {       // 内部の p → 表示する数字
+  return direction === 'from' ? inversePermutation(perm) : perm.slice();
 }
 ```
 
-**UX への配慮**:
-- エラーメッセージに具体的な値を含める（「5 が範囲外」「2 が重複」）
-- 複数のエラーがある場合も、最初に検出したものから順に報告
+| 書き方 | `3-1-4-2`で`ABCD`を暗号化 |
+|---|---|
+| 送る向き | `BDAC` |
+| 取り出す向き | `CADB` |
+
+保存する鍵は、向きの設定にかかわらず送る向きの文字列にします。
 
 ---
 
-## 逆転置の計算
+## 鍵の読み取りと検証
 
-### 逆写像の高速計算
+`parseKey(str, direction)`は、次の順に確かめます。
 
-順列 `perm` に対して、その逆順列 `inv` を O(n) で計算します。
+1. NFKCで正規化する（全角の数字・ハイフン・カンマ・空白を半角にする）。
+2. 区切り（空白、`,`、`、`、各種のハイフンとダッシュ、長音記号`ー`）で分ける。前後の区切りは無視する。
+3. 各部分が1〜3桁の数字かを確かめる（`3.5`や`a`は`key.format`）。
+4. `validatePermutation`で、長さ（2〜64）・範囲（1〜n）・重複を確かめる。
+5. 書かれた向きから内部の送る向きに直す。
 
-**実装箇所**: `script.js:172-178`
+誤りは次のキーで返し、画面では`messages.js`の文にします。
+
+| キー | 条件 | 例 |
+|---|---|---|
+| `key.empty` | 空 | `''` |
+| `key.format` | 数字以外を含む | `3-1-a-2` |
+| `key.length` | 長さが2未満か65以上 | `1` |
+| `key.range` | 1〜nの外の数がある | `9-9`、`1-5-2` |
+| `key.duplicate` | 同じ数が2回以上ある（足りない数も返す） | `1-2-2-4`（重複2、不足3） |
+
+---
+
+## 逆の順列と合成
 
 ```javascript
-function inversePermutation(perm){
+function inversePermutation(perm) {
   const inv = new Array(perm.length);
-  // perm[i] = j (1-based) means position i -> j
-  // inverse: inv[j-1] = i+1
-  perm.forEach((j, i)=> inv[j-1] = i+1);
+  perm.forEach((to, i) => { inv[to - 1] = i + 1; });
   return inv;
 }
-```
-
-**数学的原理**:
-
-順列 σ: [1..n] → [1..n] に対して、逆順列 σ⁻¹ は以下を満たす:
-
-```
-σ(i) = j  ⇔  σ⁻¹(j) = i
-```
-
-**具体例**:
-
-```javascript
-perm = [3, 1, 4, 2]  // σ(1)=3, σ(2)=1, σ(3)=4, σ(4)=2
-inv  = [2, 4, 1, 3]  // σ⁻¹(1)=2, σ⁻¹(2)=4, σ⁻¹(3)=1, σ⁻¹(4)=3
-```
-
-**検証**:
-```
-σ(1)=3, σ⁻¹(3)=1 ✓
-σ(2)=1, σ⁻¹(1)=2 ✓
-σ(3)=4, σ⁻¹(4)=3 ✓
-σ(4)=2, σ⁻¹(2)=4 ✓
-```
-
-**暗号化・復号化の関係**:
-- 暗号化: `ciphertext = applyPermutation(plaintext, perm)`
-- 復号化: `plaintext = applyPermutation(ciphertext, inv)`
-
----
-
-## ブロック暗号化処理
-
-### ブロック分割とパディング
-
-**実装箇所**: `script.js:186-237`
-
-#### チャンキング処理
-
-```javascript
-function chunkBy(str, size){
-  const chunks = [];
-  for(let i=0;i<str.length;i+=size){
-    chunks.push(str.slice(i, i+size));
-  }
-  return chunks;
+function compose(a, b) {   // 先に a、次に b をかけた結果
+  return a.map(to => b[to - 1]);
 }
 ```
 
-- 固定サイズでの分割
-- 最後のブロックが短くなる場合あり → パディング処理へ
-
-#### ブロック単位の転置
-
-```javascript
-function applyPermutationToBlock(block, perm, padChar, padEnable){
-  const n = perm.length;
-  let b = block;
-
-  // パディング処理
-  if(block.length < n){
-    if(padEnable && padChar){
-      b = block + padChar.repeat(n - block.length);
-    }else{
-      return block;  // パディング無効時はそのまま返す
-    }
-  }
-
-  // 転置実行
-  const out = new Array(n);
-  for(let i=0;i<n;i++){
-    const from = i;          // 0-based index
-    const to = perm[i]-1;    // 0-based destination
-    out[to] = b[from];
-  }
-  return out.join('');
-}
-```
-
-**工夫点**:
-
-1. **パディングの柔軟性**: ユーザーがON/OFF切り替え可能
-2. **不完全ブロックの扱い**: パディングなしの場合は変換せずそのまま返す
-3. **0-based/1-based の変換**: パターンは1-based、配列アクセスは0-based
-
-#### パディング除去
-
-```javascript
-function trimRightPad(str, padChar){
-  if(!padChar) return str;
-  let i = str.length-1;
-  while(i>=0 && str[i]===padChar) i--;
-  return str.slice(0, i+1);
-}
-```
-
-**注意事項**:
-- 末尾のパディング文字をすべて削除
-- ⚠️ **制限**: 元の平文末尾にパディング文字と同じ文字があった場合も削除される
-- これは古典的な転置暗号の既知の制限（README に明記）
+`3-1-4-2`の逆は`2-4-1-3`です。`compose(p, inversePermutation(p))`は恒等の順列になります。2つの鍵を続けてかけた暗号文は、`compose`で作った1つの鍵の暗号文と同じです（テストで確かめています）。
 
 ---
 
-## ビジュアル編集機能
+## 暗号化と復号
 
-### ドラッグ&ドロップによる直感的編集
+`toUnits`で、テキストをNFCに正規化したあと1コードポイントずつに分けます。UTF-16の単位で分けないので、絵文字（サロゲートペア）を途中で切りません。NFDで書かれた「か＋濁点」はNFCの「が」1文字になります。
 
-**実装箇所**: `script.js:900-1030`
+`encrypt(text, perm, { pad, padChar })`は、n文字ずつのブロックごとに次の結果を返します。
 
-#### HTML5 Drag and Drop API の活用
+- `plain`：埋字を足したあとの平文のブロック
+- `cipher`：並べ替えたブロック
+- `padCount`：足した埋字の数
+- `permuted`：並べ替えたか（短い最後のブロックを埋めなかったときは`false`）
 
-```javascript
-visualEl.addEventListener('dragstart', (e)=>{
-  e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', i);
-  visualEl.classList.add('dragging');
-});
+`decrypt(text, perm, { trimPad, padChar })`は、n文字にそろったブロックを逆の順列で並べ戻し、短い最後のブロックはそのまま残します。どちらも、注意を`notes`に`{ key, params }`で入れて返します。
 
-visualEl.addEventListener('drop', (e)=>{
-  e.preventDefault();
-  const fromIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
-  const toIndex = i;
-
-  // スワップ
-  [visualPattern[fromIndex], visualPattern[toIndex]] =
-    [visualPattern[toIndex], visualPattern[fromIndex]];
-
-  renderVisualPattern();
-});
-```
-
-**技術的ポイント**:
-
-1. **データ転送**: `dataTransfer` でドラッグ元のインデックスを伝播
-2. **視覚フィードバック**: CSS クラス `dragging` で透明度変更
-3. **スワップ操作**: 配列の分割代入で要素交換
-4. **即時反映**: ドロップ後即座に再描画
-
-#### リセット機能
-
-```javascript
-visualEls.reset.addEventListener('click', ()=>{
-  visualPattern = Array.from({length: visualPattern.length}, (_, i) => i+1);
-  renderVisualPattern();
-  showToast('パターンを初期状態（1-2-3-...）にリセットしました');
-});
-```
-
-恒等順列 `[1, 2, 3, ...]` に戻す機能。
+| キー | 意味 |
+|---|---|
+| `enc.shortBlockKept` | 最後のブロックが短く、埋字なしなので並べ替えずに出した |
+| `enc.endsWithPad` | 平文の末尾が埋字と同じ文字（復号で区別できない） |
+| `dec.shortBlockKept` | 最後のブロックが短いので並べ替えずに残した |
+| `dec.trimmed` | 末尾の埋字を何文字除いたか |
 
 ---
 
-## ブロック間ナビゲーション
+## 埋字の扱い
 
-### マルチブロック可視化システム
+- 埋字は1コードポイントの見える文字に限る（`validatePadChar`）。空白・制御文字・ゼロ幅文字は拒否し、空なら埋字なしとして扱う。
+- 暗号化：埋字ありなら、最後の短いブロックを埋字で埋めてから並べ替える。
+- 復号：暗号文の長さが鍵の長さの倍数のとき（最後のブロックが埋まっているとき）だけ、末尾の埋字を最大「長さ−1」文字まで除く。
 
-暗号化時に複数ブロックがある場合、左右矢印で個別ブロックの変換を確認できます。
+埋字と平文の末尾の文字は、暗号文からは見分けられません。`TAX`を鍵`3-1-4-2`・埋字`X`で暗号化すると`AXTX`、復号して除くと`TA`です。そこで暗号化の側で`enc.endsWithPad`を出し、埋字を別の文字にするよう促します（`Q`なら`AQTX`→`TAX`）。
 
-**実装箇所**: `script.js:591-656`
+---
 
-#### 状態管理
+## 乱数で鍵を作る
 
-```javascript
-let encryptBlocks = { input: [], output: [] };  // 入力・出力ブロック配列
-let encryptCurrentBlock = 0;                     // 現在表示中のブロックインデックス
-```
-
-#### ナビゲーション更新
+鍵はFisher–Yates法で作り、各段の乱数は`crypto.getRandomValues`から得ます。`Uint32`の値をそのまま`% max`すると小さい値がわずかに出やすくなるので、`2^32 − (2^32 mod max)`以上の値は捨てて引き直します。
 
 ```javascript
-function updateEncryptBlockNav(){
-  const totalBlocks = encryptBlocks.input.length;
-
-  // インジケーター更新
-  encryptEls.blockIndicator.textContent =
-    totalBlocks > 0 ? `ブロック ${encryptCurrentBlock + 1} / ${totalBlocks}` : 'ブロック 1';
-
-  // ボタンの有効/無効制御
-  encryptEls.blockPrev.disabled = encryptCurrentBlock <= 0;
-  encryptEls.blockNext.disabled = encryptCurrentBlock >= totalBlocks - 1 || totalBlocks === 0;
-
-  // 対応表の描画
-  if(totalBlocks > 0){
-    const blockIn = encryptBlocks.input[encryptCurrentBlock] || '';
-    const blockOut = encryptBlocks.output[encryptCurrentBlock] || '';
-    renderMapTable(encryptEls.mapBody, blockIn, blockOut, 'forward');
+function randomBelow(max, getRandomValues) {
+  const range = 0x100000000;
+  const limit = range - (range % max);
+  const buf = new Uint32Array(1);
+  for (;;) {
+    getRandomValues(buf);
+    if (buf[0] < limit) return buf[0] % max;
   }
 }
 ```
 
-**UX 設計**:
-- 先頭ブロックで「◀ 前のブロック」が無効化
-- 最終ブロックで「次のブロック ▶」が無効化
-- 「ブロック 2 / 5」形式のインジケーターで現在位置を明示
-
-#### イベントハンドラー
-
-```javascript
-encryptEls.blockPrev.addEventListener('click', ()=>{
-  if(encryptCurrentBlock > 0){
-    encryptCurrentBlock--;
-    updateEncryptBlockNav();
-  }
-});
-
-encryptEls.blockNext.addEventListener('click', ()=>{
-  if(encryptCurrentBlock < encryptBlocks.input.length - 1){
-    encryptCurrentBlock++;
-    updateEncryptBlockNav();
-  }
-});
-```
+`getRandomValues`を渡せない環境では例外を投げ、画面は「ランダム生成はできません」と知らせます（`Math.random`には切り替えません）。
 
 ---
 
-## アニメーション機能
+## 画面の状態と自動の計算
 
-### ステップバイステップ転置デモ
+`script.js`は状態を`state`の1か所に持ちます。
 
-**実装箇所**: `script.js:680-780`
+| 項目 | 内容 |
+|---|---|
+| `direction` | 鍵の書き方（`to`／`from`） |
+| `key` | 送る向きの鍵 |
+| `enc.result`・`enc.block`・`enc.step`・`enc.timer` | 暗号化の結果、表示中のブロック、引いた線の本数（`null`はすべて）、自動で引くタイマー |
+| `dec.result`・`dec.block` | 復号の結果と表示中のブロック |
+| `editorOpen`・`editorSelected` | 並べ替えの開閉と、選んでいる数字 |
 
-#### 遅延レンダリングによるアニメーション
+鍵を変えると`setKey`が、平文・埋字を変えると`input`・`change`のイベントが、`computeEncrypt`・`computeDecrypt`を呼び、結果・注意・ブロックの表示をまとめて描き直します。前の結果を残す経路がないので、鍵を変えたのに暗号文が古いまま、という食い違いが起きません。IMEで変換中も入力欄は書き換えないので、変換は途切れません。
 
-```javascript
-function runAnimation(){
-  const input = encryptEls.animInput.value.trim();
-  if(!input){
-    showToast('アニメーション用の文字列を入力してください', 'danger');
-    return;
-  }
-  if(!currentKey){
-    showToast('鍵が設定されていません', 'danger');
-    return;
-  }
-
-  const n = currentKey.length;
-  const blocks = chunkBy(input, n);
-  const tbody = encryptEls.animBody;
-  tbody.innerHTML = '';
-
-  let blockIndex = 0;
-
-  // 1ブロックずつアニメーション
-  const processBlock = ()=>{
-    if(blockIndex >= blocks.length){
-      encryptEls.animStatus.textContent = 'アニメーション完了';
-      encryptEls.animStop.disabled = true;
-      return;
-    }
-
-    const block = blocks[blockIndex];
-    const paddedBlock = block.length < n ? block + '?'.repeat(n - block.length) : block;
-    const output = applyPermutationToBlock(block, currentKey, '?', true);
-
-    // 行を追加（XSS対策: textContent使用）
-    for(let i=0; i<n; i++){
-      const tr = document.createElement('tr');
-      const td1 = document.createElement('td');
-      td1.textContent = String(i+1);
-      const td2 = document.createElement('td');
-      td2.textContent = paddedBlock[i] || '';
-      const td3 = document.createElement('td');
-      td3.textContent = '';
-      tr.append(td1, td2, td3);
-      tbody.appendChild(tr);
-    }
-
-    // 1文字ずつ遅延描画
-    let charIndex = 0;
-    const interval = setInterval(()=>{
-      if(charIndex >= n){
-        clearInterval(interval);
-        blockIndex++;
-        setTimeout(processBlock, 300);  // 次のブロックへ
-        return;
-      }
-
-      const targetPos = currentKey[charIndex] - 1;
-      const rows = tbody.querySelectorAll('tr');
-      const targetRow = rows[charIndex];
-      if(targetRow){
-        const outputCell = targetRow.querySelector('td:nth-child(3)');
-        if(outputCell) outputCell.textContent = output[targetPos] || '';
-      }
-      charIndex++;
-    }, 200);  // 200ms間隔
-  };
-
-  processBlock();
-}
-```
-
-**技術的工夫**:
-
-1. **setTimeout/setInterval の組み合わせ**: ブロック間は300ms、文字間は200msの遅延
-2. **XSS対策**: `textContent` を使用（`innerHTML` は使わない）
-3. **停止機能**: グローバルタイマーIDを保持し、`clearInterval` で中断可能
-4. **ステータス表示**: 「アニメーション中...」「完了」でフィードバック
+タブは`role="tablist"`で、`aria-selected`と`tabIndex`を切り替えのたびにそろえます。←→・Home・Endで移れます。
 
 ---
 
-## セキュリティ対策
+## 配線図と1本ずつ引く操作
 
-### XSS (Cross-Site Scripting) 防止
+`PclWiring.render(svg, opts)`は、上の段の位置`i`から下の段の位置`j`へ線（3次ベジェ曲線）を引きます。
 
-**実装方針**: ユーザー入力を DOM に挿入する際は、**常に `textContent` を使用**し、`innerHTML` を避ける。
+- 図は自然な大きさ（1位置40px）で描き、はみ出す分は外側の`.wiring-scroll`で横にスクロールさせる。幅を画面に合わせて縮めないので、長い鍵でも文字が小さくならない。
+- 矢じりは`polygon`の三角形で描く（`marker`は使わない）。
+- 動かない位置（`p[i] = i + 1`）の線は破線にする。
+- 箱の中の空白は`␣`、制御文字や見えない文字は`U+XXXX`の形で示す。利用者の文字列は`text`要素の`textContent`に入れる。
+- 図全体に`role="img"`と、線の対応を並べた`aria-label`を付ける（16本まで。それ以上は本数だけ）。同じ内容は対応表でも読める。
 
-#### 脆弱な実装例（修正前）
-
-```javascript
-// ❌ 危険: ユーザー入力を innerHTML に直接挿入
-tr.innerHTML = `<td>${i+1}</td><td>${first[i]}</td><td></td>`;
-```
-
-**攻撃シナリオ**:
-```
-ユーザー入力: <img src=x onerror=alert('XSS')>
-→ ブラウザーが実行してしまう
-```
-
-#### 安全な実装（修正後）
-
-**実装箇所**: `script.js:701-714`
-
-```javascript
-// ✅ 安全: DOM API で要素を作成
-const tr = document.createElement('tr');
-const td1 = document.createElement('td');
-td1.textContent = String(i+1);  // textContent は自動エスケープ
-const td2 = document.createElement('td');
-td2.textContent = first[i] || '';
-const td3 = document.createElement('td');
-td3.textContent = '';
-tr.append(td1, td2, td3);
-tbody.appendChild(tr);
-```
-
-**ポイント**:
-- `textContent` は文字列をそのままテキストノードとして挿入
-- HTML タグとして解釈されない
-- ブラウザーが自動的にエスケープ
+1本ずつ引く操作の状態は「引いた本数`step`」だけです。`partialBlock(units, perm, step)`が、最初の`step`本の線を引いた状態の暗号文の各位置（まだなら`null`）を返し、画面はその戻り値から描きます。ボタンを連打しても、自動で引いている途中で入力を変えても、状態がずれる余地がありません。入力・鍵・ブロックを変えると、自動で引く処理を止め、すべての線を引いた状態に戻します。
 
 ---
 
-## localStorage 管理
+## 並べ替えの操作
 
-### パターン保存機能
+鍵生成タブの「並べ替えて作る」は、今の鍵の数字（選んでいる向きで書いたもの）を`button`の並びで示します。
 
-**実装箇所**: `script.js:331-360`
+| 操作 | 動き |
+|---|---|
+| クリック・タップ | 1つ目で選び、2つ目で入れ替える。同じものをもう一度押すと選択を外す |
+| Enter・Space | クリックと同じ（`button`の標準の動き） |
+| ←→ | 選んでいる数字を隣と入れ替えて動かす。選んでいなければフォーカスだけ動かす |
+| Esc | 選択を外す |
+| マウスのドラッグ | 落とした先の数字と入れ替える |
 
-#### 保存データ構造
-
-```javascript
-[
-  { name: "シーザーシフト風", pattern: [2,3,4,1] },
-  { name: "逆順", pattern: [4,3,2,1] },
-  ...
-]
-```
-
-#### エラーハンドリング強化
-
-```javascript
-function loadSaved(){
-  try{
-    const data = localStorage.getItem(STORAGE_KEY);
-    if(!data) return [];
-    const parsed = JSON.parse(data);
-    if(!Array.isArray(parsed)) return [];
-    return parsed;
-  }catch(e){
-    console.error('Failed to load saved patterns:', e);
-    return [];  // 読み込み失敗時は空配列を返す
-  }
-}
-
-function saveSaved(list){
-  try{
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-  }catch(e){
-    console.error('Failed to save patterns:', e);
-    showToast('保存に失敗しました（容量制限の可能性）', 'danger');
-  }
-}
-```
-
-**対応するエラーケース**:
-- **QuotaExceededError**: localStorage の容量上限（通常5-10MB）
-- **JSON.parse エラー**: 破損したデータ
-- **プライベートモード**: 一部ブラウザーで localStorage が無効
-
-#### プリセットパターン
-
-**実装箇所**: `script.js:362-372`
-
-```javascript
-const presetPatterns = [
-  { name: '逆順 (n=4)', pattern: [4,3,2,1] },
-  { name: 'ローテーション (n=5)', pattern: [5,1,2,3,4] },
-  { name: 'ペア交換 (n=6)', pattern: [2,1,4,3,6,5] },
-  { name: 'ランダム例 (n=8)', pattern: [3,7,1,5,8,2,6,4] }
-];
-```
-
-初心者向けに、典型的な順列パターンを提供。
+入れ替えるたびに鍵へすぐ反映し、`aria-live`の欄に結果を出します。イベントは`ol`に1回だけ登録し、押された`button`を`closest`で探します（開き直してもリスナーは増えません）。
 
 ---
 
-## 技術スタック
+## 保存した鍵
 
-| 項目 | 技術 |
-|------|------|
-| フレームワーク | なし（Vanilla JavaScript） |
-| DOM操作 | 標準 DOM API |
-| イベント処理 | addEventListener |
-| ストレージ | localStorage API |
-| スタイリング | CSS3（カスタムプロパティ、Flexbox、Grid） |
-| ドラッグ&ドロップ | HTML5 Drag and Drop API |
+`localStorage`の`pcl_patterns_v1`に、`[{ "name": "…", "pattern": "3-1-4-2" }]`の形で保存します。`pattern`は送る向きです。
 
-**フレームワークレスの利点**:
-- 依存関係なし
-- 軽量（script.js は約1200行）
-- 学習教材として理解しやすい
+読み込むときは`sanitizeSaved`で、次のどれかに当てはまる項目を捨て、捨てた数を画面に出します。
+
+- `name`か`pattern`が文字列でない。
+- `name`が空か61文字以上、または同じ`name`がすでにある。
+- `pattern`が鍵として正しくない（`9-9`など）。
+
+`localStorage`が使えない環境（読み書きで例外が出る）では、保存の機能が使えないことを示し、ほかの機能はそのまま動きます。
 
 ---
 
-## パフォーマンス最適化
+## 安全対策
 
-### 計算量
+- 利用者の文字列（平文・暗号文・保存名・埋字）は`textContent`、`value`、SVGの`text`要素で出す。`innerHTML`で文字列を組み立てない。
+- `<meta http-equiv="Content-Security-Policy">`で`default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'`を指定する。
+  - インラインのスクリプト、`onclick`などのイベント属性、`style`属性を使わない（`test/html.test.js`で検証）。
+  - 表示の切り替えは`hidden`属性とクラス、配線図の座標はSVGの属性で行う。
+  - `frame-ancestors`は`<meta>`に書いてもブラウザーが無視するので書かない（[SECURITY.md](SECURITY.md)）。
+- ページの`referrer`を`<meta name="referrer" content="no-referrer">`にし、外部リンクに`rel="noopener noreferrer"`を付ける。
+- 外部のスクリプト・フォント・CDNを読まない。通信は行わない。
+
+---
+
+## 計算量
 
 | 処理 | 計算量 | 備考 |
-|------|--------|------|
-| 順列生成（Fisher-Yates） | O(n) | n = パターン長 |
-| 逆順列計算 | O(n) | 1回の走査 |
-| パターン検証 | O(n) | Set 使用で重複検出 |
-| ブロック暗号化 | O(m·n) | m = ブロック数, n = ブロック長 |
-| 可視化レンダリング | O(n²) | SVG矢印の生成 |
+|---|---|---|
+| 鍵の検証 | O(n) | `Set`で重複を数える |
+| 逆の順列・合成 | O(n) | 1回の走査 |
+| ランダム生成 | O(n) | 棄却は1段あたり平均2回未満 |
+| 暗号化・復号 | O(L) | Lは文字数。どのブロックも同じ鍵 |
+| 配線図 | O(n) | 表示中の1ブロックだけ描く |
 
-### メモリ効率
-
-- **in-place シャッフル**: Fisher-Yates は追加配列を使わない
-- **チャンキング**: ブロックごとに処理し、全文を一度にメモリに保持しない
-- **localStorage**: 保存パターン数を実質無制限（ブラウザー容量まで）
+入力のたびに全文を計算し直しますが、処理はO(L)で、表示は1ブロック分だけです。
 
 ---
 
-## 今後の拡張案
+## テスト
 
-1. **WebWorker 対応**: 大きなファイルの暗号化を非同期処理
-2. **列転置暗号モード**: 文字列鍵から順列を生成する機能
-3. **二重転置ワンクリック**: 2回適用を自動化
-4. **統計分析**: 暗号文の文字分布グラフ表示
-5. **ファイル入出力**: テキストファイルの直接読み込み/保存
+`npm test`（`node --test`）で次を検証します。依存パッケージはありません。
+
+| ファイル | 内容 |
+|---|---|
+| `test/core.test.js` | 既知解答（`ENIG`→`NGEI`、Stinsonの例、Gainesの例、レールフェンス・縦列転置との等価）、n=2〜64の往復、絵文字・結合文字、埋字の境界、乱数の棄却と偏り、保存データの検証 |
+| `test/readme.test.js` | READMEの表の例を計算部で再計算、YAMLの構造、画像の参照、ディレクトリー構造の網羅と説明、表記 |
+| `test/html.test.js` | CSP（`frame-ancestors`なし）、`referrer`、インラインのイベント属性と`style`属性がない、タブとパネルのARIA、主要な要素のid |
+| `test/contrast.test.js` | `style.css`の配色から、文字と背景の組のコントラスト比が4.5:1以上か |
+| `test/messages.test.js` | `script.js`が使う文言のキーが辞書にあること、`script.js`に日本語の文字列がないこと |
+| `test/format.test.js` | 行の長さ、改行コード、見えない文字 |
 
 ---
 
 ## 参考文献
 
-- **Fisher-Yates Shuffle**: Knuth, Donald E. "The Art of Computer Programming, Volume 2: Seminumerical Algorithms" (1969)
-- **Transposition Cipher**: Singh, Simon. "The Code Book: The Science of Secrecy from Ancient Egypt to Quantum Cryptography" (1999)
-- **XSS Prevention**: OWASP XSS Prevention Cheat Sheet
-- **HTML5 Drag and Drop**: MDN Web Docs - Drag and Drop API
-
----
-
-## ライセンス
-
-本プロジェクトのソースコードは教育目的で公開されています。詳細は [README.md](README.md) を参照してください。
+- Douglas R. Stinson, "Cryptography: Theory and Practice"（Permutation Cipherの定義。取り出す向きの式）
+- Helen Fouché Gaines, "Elementary Cryptanalysis" (1939), Project Gutenberg #75074（同じ鍵の2通りの使い方、多重アナグラム）
+- Donald E. Knuth, "The Art of Computer Programming, Volume 2: Seminumerical Algorithms"（Fisher–Yates法）
+- OWASP Cross Site Scripting Prevention Cheat Sheet
+- W3C Content Security Policy Level 3（`frame-ancestors`は`<meta>`では無視される）

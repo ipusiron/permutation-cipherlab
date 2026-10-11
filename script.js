@@ -663,7 +663,9 @@
       fillTable($('#decrypt-map tbody'), block.cipher.map((ch, i) => [String(i + 1), shown(ch), String(i + 1)]));
       return;
     }
-    note.hidden = true;
+    const trimmedHere = index === blocks.length - 1 ? res.trimmed : 0;
+    note.textContent = trimmedHere ? t('block.trimNote', { count: trimmedHere }) : '';
+    note.hidden = !trimmedHere;
     const inv = Core.inversePermutation(state.key);
     const n = inv.length;
     const links = inv.map((to, j) => [j, to - 1]);

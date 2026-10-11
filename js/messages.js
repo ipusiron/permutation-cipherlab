@@ -66,6 +66,7 @@
     'block.empty': 'ブロックなし',
     'block.padNote': 'このブロックの末尾{count}文字は埋字です',
     'block.keptNote': 'このブロックは短いため並べ替えていません',
+    'block.trimNote': 'このブロックの末尾{count}文字は埋字として除きました（下の段は除く前の並び）',
     'step.status': '{n}本中{k}本',
     'step.play': '自動で引く',
     'step.stop': '止める',

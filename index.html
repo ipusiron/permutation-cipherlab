@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Permutation CipherLab</title>
   <meta name="description" content="Interactive tool for exploring permutation ciphers — define, edit, and visualize custom transposition patterns."/>
-  <meta name="referrer" content="no-referrer-when-downgrade" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'" />
+  <meta name="referrer" content="no-referrer" />
   <link rel="stylesheet" href="style.css" />
   <link rel="icon" href="data:image/svg+xml;utf8,
   <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>
@@ -28,72 +30,92 @@
     <p class="subtitle">任意の転置パターンで文字列を並び替える「転置式暗号」をビジュアルで理解するためのツール</p>
   </header>
 
-  <nav class="tabs" role="tablist" aria-label="Main Tabs">
-    <button class="tab active" data-tab="keygen" role="tab" aria-selected="true">鍵生成</button>
-    <button class="tab" data-tab="encrypt" role="tab" aria-selected="false">暗号化</button>
-    <button class="tab" data-tab="decrypt" role="tab" aria-selected="false">復号</button>
-    <button class="tab" data-tab="study" role="tab" aria-selected="false">座学</button>
+  <noscript><p class="noscript">このツールにはJavaScriptが必要です。</p></noscript>
+
+  <nav class="tabs" role="tablist" aria-label="機能の切り替え">
+    <button type="button" class="tab active" id="tab-keygen" data-tab="keygen" role="tab" aria-selected="true" aria-controls="panel-keygen">鍵生成</button>
+    <button type="button" class="tab" id="tab-encrypt" data-tab="encrypt" role="tab" aria-selected="false" aria-controls="panel-encrypt" tabindex="-1">暗号化</button>
+    <button type="button" class="tab" id="tab-decrypt" data-tab="decrypt" role="tab" aria-selected="false" aria-controls="panel-decrypt" tabindex="-1">復号</button>
+    <button type="button" class="tab" id="tab-study" data-tab="study" role="tab" aria-selected="false" aria-controls="panel-study" tabindex="-1">座学</button>
   </nav>
 
   <main>
     <!-- Key Generation -->
     <section class="panel active" id="panel-keygen" role="tabpanel" aria-labelledby="tab-keygen">
       <div class="card keygen-card">
-        <h2>転置パターン生成</h2>
-        <p class="description">暗号化・復号に使用する転置パターン（鍵）を生成します。</p>
+        <h2>転置パターン（鍵）</h2>
+        <p class="description">暗号化・復号に使う並べ替えのパターン（鍵）を作ります。鍵の長さが、そのまま1ブロックの文字数になります。</p>
+
+        <fieldset class="direction-box">
+          <legend>鍵の書き方（向き）</legend>
+          <label class="radio">
+            <input type="radio" name="key-direction" value="to" checked />
+            <span><strong>送る向き</strong>：平文のi文字目を、暗号文の位置p[i]へ送る（本ツールの既定）</span>
+          </label>
+          <label class="radio">
+            <input type="radio" name="key-direction" value="from" />
+            <span><strong>取り出す向き</strong>：暗号文のi文字目を、平文のp[i]文字目から取る（Stinsonの教科書・dCodeの書き方）</span>
+          </label>
+          <p class="info-note">
+            同じ並べ替えを2通りに書けます。3-1-4-2（送る向き）と2-4-1-3（取り出す向き）は同じ鍵で、どちらもENIGをNGEIにします。
+            切り替えても鍵そのものは変わらず、数字の書き方だけが変わります。
+          </p>
+        </fieldset>
 
         <div class="pattern-length-info">
           <div class="length-section">
-            <label>パターン長 (2-64)</label>
+            <label for="keygen-length">パターン長（2〜64）</label>
             <div class="length-controls">
-              <input id="keygen-length" type="number" min="2" max="64" value="4" placeholder="カスタム" />
+              <input id="keygen-length" type="number" min="2" max="64" value="4" inputmode="numeric" />
               <div class="preset-group">
-                <span class="preset-label">プリセット：</span>
-                <div class="preset-buttons">
-                  <button class="btn-preset" data-length="2">2</button>
-                  <button class="btn-preset" data-length="4">4</button>
-                  <button class="btn-preset" data-length="8">8</button>
-                  <button class="btn-preset" data-length="12">12</button>
-                  <button class="btn-preset" data-length="16">16</button>
-                  <button class="btn-preset" data-length="20">20</button>
+                <span class="preset-label" id="preset-label">よく使う長さ：</span>
+                <div class="preset-buttons" role="group" aria-labelledby="preset-label">
+                  <button type="button" class="btn-preset" data-length="2">2</button>
+                  <button type="button" class="btn-preset" data-length="4">4</button>
+                  <button type="button" class="btn-preset" data-length="8">8</button>
+                  <button type="button" class="btn-preset" data-length="12">12</button>
+                  <button type="button" class="btn-preset" data-length="16">16</button>
+                  <button type="button" class="btn-preset" data-length="20">20</button>
                 </div>
               </div>
             </div>
           </div>
           <p class="info-note">
-            <strong>パターン長 = ブロックサイズ</strong><br>
-            パターン長4の場合、平文は4文字ずつのブロックに分割され、各ブロック内で文字が並び替えられます。
+            <strong>パターン長 = ブロックの文字数</strong><br />
+            パターン長4なら、平文を4文字ずつのブロックに分け、どのブロックも同じ鍵で並べ替えます。
           </p>
         </div>
 
         <div class="keygen-methods">
-          <h3>生成方法</h3>
+          <h3>作り方</h3>
 
           <div class="method-card">
-            <h4>🎲 ランダム生成</h4>
-            <p>指定した長さのランダムな転置パターンを生成します。</p>
-            <p class="example-text">例：パターン長4 → 「3-1-4-2」のような4文字ブロック用の鍵</p>
-            <button class="btn primary" id="keygen-random">ランダム生成</button>
+            <h4>🎲 ランダムに作る</h4>
+            <p>パターン長の鍵を、ブラウザーの暗号用の乱数（crypto.getRandomValues）で作ります。</p>
+            <button type="button" class="btn primary" id="keygen-random">ランダム生成</button>
           </div>
 
           <div class="method-card">
-            <h4>✏️ 手動入力</h4>
-            <p>独自のパターンを入力します（例：3-1-4-2）</p>
+            <h4>✏️ 数字で入力する</h4>
+            <p>数字を「-」「,」や空白で区切って入力し、Enterか「適用」で設定します。いま選んでいる向きで読みます。</p>
             <div class="row">
-              <input id="keygen-manual" type="text" placeholder="例）3-1-4-2" />
-              <button class="btn" id="keygen-validate">適用</button>
+              <label for="keygen-manual" class="visually-hidden">鍵の数字</label>
+              <input id="keygen-manual" type="text" placeholder="例）3-1-4-2" autocomplete="off" spellcheck="false" />
+              <button type="button" class="btn" id="keygen-validate">適用</button>
             </div>
-            <span id="keygen-manual-error" class="error-msg" role="alert" style="display:none;"></span>
+            <p id="keygen-manual-error" class="error-msg" role="alert" hidden></p>
           </div>
 
           <div class="method-card">
-            <h4>🎨 ビジュアル編集</h4>
-            <p>ドラッグ＆ドロップで直感的に作成します。</p>
-            <button class="btn" id="keygen-visual">ビジュアル編集を開始</button>
+            <h4>🎨 並べ替えて作る</h4>
+            <p>
+              今の鍵の数字を並べ替えます。2つを順に選ぶと入れ替わり、すぐに鍵へ反映します。
+              キーボードでは、数字を選んでEnterかSpaceを押し、← → で動かします。
+            </p>
+            <button type="button" class="btn" id="keygen-visual" aria-expanded="false" aria-controls="keygen-draggable-wrap">並べ替えを開く</button>
             <div id="keygen-draggable-wrap" class="draggable-wrap" hidden>
-              <div class="drag-help">ドラッグで順序を入れ替え（左から右へ）</div>
-              <ul id="keygen-draggable" class="drag-list" aria-label="Key Pattern Editor"></ul>
-              <button class="btn ghost" id="keygen-visual-apply">このパターンを適用</button>
+              <ol id="keygen-draggable" class="drag-list" aria-label="鍵の数字の並び"></ol>
+              <p class="drag-help" id="keygen-drag-status" aria-live="polite"></p>
             </div>
           </div>
         </div>
@@ -101,102 +123,112 @@
         <div class="current-key">
           <h3>現在の鍵</h3>
           <div class="key-display">
-            <span id="current-key-text" class="key-text">未生成</span>
-            <button class="btn ghost" id="key-copy" disabled>コピー</button>
+            <span id="current-key-text" class="key-text">未設定</span>
+            <button type="button" class="btn ghost" id="key-copy" disabled>コピー</button>
           </div>
-          <p class="key-info" id="key-info">鍵を生成すると、暗号化・復号タブで自動的に使用されます。</p>
+          <dl class="key-facts">
+            <div><dt>送る向き</dt><dd id="key-to">未設定</dd></div>
+            <div><dt>取り出す向き</dt><dd id="key-from">未設定</dd></div>
+            <div><dt>ブロックの文字数</dt><dd id="key-length">未設定</dd></div>
+          </dl>
+          <p class="key-info">取り出す向きの数字は、送る向きで書いた復号の鍵（逆の順列）と同じです。鍵は暗号化・復号タブでそのまま使います。</p>
 
-          <div id="key-visualization" class="key-visualization" style="display:none;">
-            <div class="viz-section">
-              <h4>転置パターン（暗号化用）</h4>
-              <div class="pattern-viz" id="pattern-viz-forward"></div>
+          <figure class="wiring-figure">
+            <figcaption>
+              配線図：上の段が平文の位置、下の段が暗号文の位置です。線は各文字の行き先を表します。復号は線を下から上へたどります。
+            </figcaption>
+            <div class="wiring-scroll" tabindex="0" role="region" aria-label="鍵の配線図（横にスクロールできます）">
+              <svg id="key-wiring" class="wiring" xmlns="http://www.w3.org/2000/svg"></svg>
             </div>
-            <div class="viz-section">
-              <h4>逆転置パターン（復号用）</h4>
-              <div class="pattern-viz" id="pattern-viz-inverse"></div>
-            </div>
-          </div>
+          </figure>
         </div>
 
         <div class="key-management">
           <h3>鍵の保存と管理</h3>
+          <p class="key-info">このブラウザーのlocalStorageに保存します（送る向きで保存）。秘密の鍵は保存しないでください。</p>
           <div class="row">
-            <input id="key-save-name" type="text" placeholder="保存名（例：demo-key-1）" />
-            <button class="btn" id="key-save">保存</button>
+            <label for="key-save-name" class="visually-hidden">保存名</label>
+            <input id="key-save-name" type="text" maxlength="60" placeholder="保存名（例：demo-key-1）" autocomplete="off" />
+            <button type="button" class="btn" id="key-save">保存</button>
           </div>
+          <p id="key-saved-note" class="note-msg" hidden></p>
           <div id="key-saved-list" class="saved-list"></div>
         </div>
       </div>
     </section>
 
-    <!-- Encryption (formerly Permutation) -->
+    <!-- Encryption -->
     <section class="panel" id="panel-encrypt" role="tabpanel" aria-labelledby="tab-encrypt">
       <div class="grid">
         <div class="card">
-          <h2>平文入力</h2>
-          <div class="input-with-preset">
-            <textarea id="encrypt-input" rows="6" placeholder="例）ENIGMA IS FUN"></textarea>
-            <div class="preset-control">
-              <button class="btn ghost btn-sm" id="encrypt-preset-toggle">📝 例文を選択</button>
-              <div id="encrypt-preset-list" class="preset-list" style="display:none;">
-                <button class="preset-item" data-text="ENIGMA IS FUN">ENIGMA IS FUN</button>
-                <button class="preset-item" data-text="HELLO WORLD FROM PERMUTATION CIPHER">HELLO WORLD FROM PERMUTATION CIPHER</button>
-                <button class="preset-item" data-text="THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG">THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG</button>
-                <button class="preset-item" data-text="CRYPTOGRAPHY IS THE ART OF SECURE COMMUNICATION">CRYPTOGRAPHY IS THE ART OF SECURE COMMUNICATION</button>
-                <button class="preset-item" data-text="TRANSPOSE AND SUBSTITUTE">TRANSPOSE AND SUBSTITUTE</button>
-              </div>
+          <h2><label for="encrypt-input">平文</label></h2>
+          <textarea id="encrypt-input" rows="6" placeholder="例）ENIGMA IS FUN" spellcheck="false"></textarea>
+          <details class="preset-control">
+            <summary>📝 例文を選ぶ</summary>
+            <div class="preset-list">
+              <button type="button" class="preset-item" data-text="ENIGMA IS FUN">ENIGMA IS FUN</button>
+              <button type="button" class="preset-item" data-text="HELLO WORLD FROM PERMUTATION CIPHER">HELLO WORLD FROM PERMUTATION CIPHER</button>
+              <button type="button" class="preset-item" data-text="THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG">THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG</button>
+              <button type="button" class="preset-item" data-text="CRYPTOGRAPHY IS THE ART OF SECURE COMMUNICATION">CRYPTOGRAPHY IS THE ART OF SECURE COMMUNICATION</button>
+              <button type="button" class="preset-item" data-text="TRANSPOSE AND SUBSTITUTE">TRANSPOSE AND SUBSTITUTE</button>
             </div>
-          </div>
-
-          <div class="key-info-box">
-            <strong>使用中の鍵（転置パターン）：</strong>
-            <span id="encrypt-key-display">鍵生成タブで鍵を生成してください</span>
-            <br>
-            <span class="block-size-info" id="encrypt-block-info"></span>
-          </div>
-
-          <details class="pad-opts" open>
-            <summary>パディング設定（任意）</summary>
-            <div class="row">
-              <label for="encrypt-pad-char">パディング文字</label>
-              <input id="encrypt-pad-char" type="text" maxlength="1" value="X" placeholder="例）X" />
-            </div>
-            <div class="row">
-              <label class="checkbox">
-                <input id="encrypt-pad-enable" type="checkbox" checked />
-                最後の不足ブロックをパディングで補完する
-              </label>
-            </div>
-            <p class="pad-note">
-              ℹ️ チェックを外すと、最後の不足ブロックは転置されずそのまま出力されます
-            </p>
           </details>
 
-          <div class="actions">
-            <button class="btn primary" id="encrypt-run">暗号化を実行</button>
-            <button class="btn" id="encrypt-animate" title="最初のブロックを1文字ずつ視覚化します">アニメ付きデモ</button>
+          <div class="key-info-box">
+            <p><strong>使用中の鍵（<span class="key-direction-name">送る向き</span>）：</strong><span id="encrypt-key-display">未設定</span></p>
+            <p class="block-size-info" id="encrypt-block-info"></p>
           </div>
+
+          <fieldset class="pad-opts">
+            <legend>埋字（パディング）</legend>
+            <div class="row">
+              <label for="encrypt-pad-char">埋字</label>
+              <input id="encrypt-pad-char" class="pad-input" type="text" value="X" autocomplete="off" spellcheck="false" />
+            </div>
+            <label class="checkbox">
+              <input id="encrypt-pad-enable" type="checkbox" checked />
+              <span>最後の短いブロックを埋字で埋めてから並べ替える</span>
+            </label>
+            <p id="encrypt-pad-error" class="error-msg" role="alert" hidden></p>
+            <p class="pad-note">外すと、最後の短いブロックは並べ替えずにそのまま出ます。</p>
+          </fieldset>
+
+          <ul id="encrypt-notes" class="notes" aria-live="polite"></ul>
         </div>
 
         <div class="card">
-          <h2>暗号文</h2>
-          <textarea id="encrypt-output" rows="6" readonly placeholder="ここに暗号文が出力されます"></textarea>
+          <h2><label for="encrypt-output">暗号文</label></h2>
+          <textarea id="encrypt-output" rows="6" readonly placeholder="平文を入れると、ここに暗号文が出ます"></textarea>
+          <p class="hint">平文・鍵・埋字を変えると、すぐに計算し直します。</p>
 
           <div class="actions">
-            <button class="btn ghost" id="encrypt-copy">暗号文をコピー</button>
-            <button class="btn ghost" id="encrypt-to-decrypt">復号タブに送る</button>
+            <button type="button" class="btn ghost" id="encrypt-copy">暗号文をコピー</button>
+            <button type="button" class="btn ghost" id="encrypt-to-decrypt">復号タブに送る</button>
           </div>
 
-          <h3>対応表（平文 → 暗号文）</h3>
+          <h3>ブロックごとの並べ替え</h3>
           <div class="block-nav">
-            <button class="btn ghost btn-sm" id="encrypt-block-prev" disabled>◀ 前のブロック</button>
-            <span class="block-indicator" id="encrypt-block-indicator">ブロック 1</span>
-            <button class="btn ghost btn-sm" id="encrypt-block-next" disabled>次のブロック ▶</button>
+            <button type="button" class="btn ghost btn-sm" id="encrypt-block-prev" aria-label="前のブロック">◀ 前</button>
+            <span class="block-indicator" id="encrypt-block-indicator" aria-live="polite">ブロックなし</span>
+            <button type="button" class="btn ghost btn-sm" id="encrypt-block-next" aria-label="次のブロック">次 ▶</button>
+          </div>
+          <p id="encrypt-block-note" class="hint" hidden></p>
+          <div class="wiring-scroll" tabindex="0" role="region" aria-label="ブロックの配線図（横にスクロールできます）">
+            <svg id="encrypt-wiring" class="wiring" xmlns="http://www.w3.org/2000/svg"></svg>
+          </div>
+          <div class="step-controls" role="group" aria-label="線を1本ずつ引く">
+            <button type="button" class="btn ghost btn-sm" id="encrypt-step-reset">最初から</button>
+            <button type="button" class="btn ghost btn-sm" id="encrypt-step-back">1本戻す</button>
+            <button type="button" class="btn ghost btn-sm" id="encrypt-step-next">1本引く</button>
+            <button type="button" class="btn ghost btn-sm" id="encrypt-step-all">最後まで</button>
+            <button type="button" class="btn btn-sm" id="encrypt-step-play">自動で引く</button>
+            <span class="step-status" id="encrypt-step-status" aria-live="polite"></span>
           </div>
           <div class="table-wrap">
-            <table id="encrypt-map" class="map-table" aria-label="Plaintext to Ciphertext Map">
+            <table id="encrypt-map" class="map-table">
+              <caption>対応表（平文 → 暗号文）</caption>
               <thead>
-                <tr><th>#</th><th>平文</th><th>暗号文</th></tr>
+                <tr><th scope="col">平文の位置</th><th scope="col">文字</th><th scope="col">行き先（暗号文の位置）</th></tr>
               </thead>
               <tbody></tbody>
             </table>
@@ -205,55 +237,60 @@
       </div>
     </section>
 
-    <!-- Decryption (formerly Inverse) -->
+    <!-- Decryption -->
     <section class="panel" id="panel-decrypt" role="tabpanel" aria-labelledby="tab-decrypt">
       <div class="grid">
         <div class="card">
-          <h2>暗号文入力</h2>
-          <textarea id="decrypt-input" rows="6" placeholder="例）IEGN"></textarea>
+          <h2><label for="decrypt-input">暗号文</label></h2>
+          <textarea id="decrypt-input" rows="6" placeholder="例）NGEI" spellcheck="false"></textarea>
 
           <div class="key-info-box">
-            <strong>使用中の鍵（逆転値パターン）：</strong>
-            <span id="decrypt-key-display">鍵生成タブで鍵を生成してください</span>
-            <br>
-            <span class="block-size-info" id="decrypt-block-info"></span>
+            <p><strong>使用中の鍵（<span class="key-direction-name">送る向き</span>）：</strong><span id="decrypt-key-display">未設定</span></p>
+            <p>復号では逆の順列<span id="decrypt-inverse-display" class="mono">未設定</span>（送る向き）で並べ戻します。</p>
+            <p class="block-size-info" id="decrypt-block-info"></p>
           </div>
 
-          <details class="pad-opts" open>
-            <summary>パディング設定（任意）</summary>
+          <fieldset class="pad-opts">
+            <legend>埋字（パディング）</legend>
             <div class="row">
-              <label for="decrypt-pad-char">パディング文字</label>
-              <input id="decrypt-pad-char" type="text" maxlength="1" value="X" placeholder="例）X" />
+              <label for="decrypt-pad-char">埋字</label>
+              <input id="decrypt-pad-char" class="pad-input" type="text" value="X" autocomplete="off" spellcheck="false" />
             </div>
-            <div class="row">
-              <label class="checkbox">
-                <input id="decrypt-pad-trim" type="checkbox" checked />
-                復号時に末尾のパディング文字を自動トリム
-              </label>
-            </div>
-            <p class="pad-note">
-              ⚠️ 元の平文の末尾に同じ文字が含まれていた場合、それも削除される可能性があります
-            </p>
-          </details>
+            <label class="checkbox">
+              <input id="decrypt-pad-trim" type="checkbox" checked />
+              <span>末尾の埋字を除く（最後のブロックの範囲で最大「長さ−1」文字まで）</span>
+            </label>
+            <p id="decrypt-pad-error" class="error-msg" role="alert" hidden></p>
+            <p class="pad-note">埋字と平文の末尾の文字は見分けられません。平文の末尾が埋字と同じ文字なら、除く設定を外してください。</p>
+          </fieldset>
 
-          <div class="actions">
-            <button class="btn primary" id="decrypt-run">復号を実行</button>
-          </div>
+          <ul id="decrypt-notes" class="notes" aria-live="polite"></ul>
         </div>
 
         <div class="card">
-          <h2>復号結果（平文）</h2>
-          <textarea id="decrypt-output" rows="6" readonly placeholder="ここに復号された平文が出力されます"></textarea>
+          <h2><label for="decrypt-output">平文（復号の結果）</label></h2>
+          <textarea id="decrypt-output" rows="6" readonly placeholder="暗号文を入れると、ここに平文が出ます"></textarea>
+          <p class="hint">暗号文・鍵・埋字を変えると、すぐに計算し直します。</p>
 
           <div class="actions">
-            <button class="btn ghost" id="decrypt-copy">平文をコピー</button>
+            <button type="button" class="btn ghost" id="decrypt-copy">平文をコピー</button>
           </div>
 
-          <h3>対応表（暗号文 → 平文）</h3>
+          <h3>ブロックごとの並べ戻し</h3>
+          <div class="block-nav">
+            <button type="button" class="btn ghost btn-sm" id="decrypt-block-prev" aria-label="前のブロック">◀ 前</button>
+            <span class="block-indicator" id="decrypt-block-indicator" aria-live="polite">ブロックなし</span>
+            <button type="button" class="btn ghost btn-sm" id="decrypt-block-next" aria-label="次のブロック">次 ▶</button>
+          </div>
+          <p id="decrypt-block-note" class="hint" hidden></p>
+          <div class="wiring-scroll" tabindex="0" role="region" aria-label="ブロックの配線図（横にスクロールできます）">
+            <svg id="decrypt-wiring" class="wiring" xmlns="http://www.w3.org/2000/svg"></svg>
+          </div>
           <div class="table-wrap">
-            <table id="decrypt-map" class="map-table" aria-label="Ciphertext to Plaintext Map">
+            <table id="decrypt-map" class="map-table">
+              <caption>対応表（暗号文 → 平文）</caption>
               <thead>
-                <tr><th>#</th><th>暗号文</th><th>平文</th></tr>
+                <tr><th scope="col">暗号文の位置</th><th scope="col">文字</th><th scope="col">戻り先（平文の位置）</th></tr>
               </thead>
               <tbody></tbody>
             </table>
@@ -283,11 +320,11 @@
             <div class="timeline">
             <div class="timeline-item">
               <strong>紀元前5世紀</strong>
-              <p><strong>スキュタレー暗号（Scytale）</strong> - 古代スパルタで使用された最古の転置暗号。特定の太さの棒に羊皮紙を巻きつけ、縦に文字を書いていく方式。</p>
+              <p><strong>スキュタレー（Scytale）</strong> - 古代スパルタの、棒に革ひもを巻きつけて文字を書く方式。転置式暗号の最も古い例としてよく挙げられる（暗号として使われたかには異論もある）。</p>
             </div>
             <div class="timeline-item">
-              <strong>中世～近世</strong>
-              <p><strong>縦列転置式暗号（Columnar Transposition）</strong> - 表形式で文字を配置し、列の順序を入れ替える方式。第一次世界大戦でも使用された。</p>
+              <strong>19世紀〜20世紀前半</strong>
+              <p><strong>縦列転置式暗号（Columnar Transposition）</strong> - 表に文字を並べ、列の順序を入れ替えて読む方式。第一次世界大戦では二重の縦列転置が使われた。</p>
             </div>
             <div class="timeline-item">
               <strong>1970年代～</strong>
@@ -306,10 +343,16 @@
             <summary><h3>🔑 転置暗号の基本原理</h3></summary>
           <p>
             転置暗号は<strong>順列（permutation）</strong>を鍵として使用します。
-            例えば、パターン <code>3-1-4-2</code> は「1番目の文字を3番目の位置へ、2番目の文字を1番目の位置へ…」という変換ルールを表します。
+            たとえば、パターン<code>3-1-4-2</code>は「1番目の文字を3番目の位置へ、2番目の文字を1番目の位置へ…」という変換ルールを表します。
+          </p>
+          <p>
+            この書き方を本ツールでは<strong>送る向き</strong>と呼びます。逆に「暗号文のi文字目を平文の何文字目から取るか」を並べる<strong>取り出す向き</strong>もあり、
+            同じ並べ替えは<code>2-4-1-3</code>と書きます。Stinsonの教科書『Cryptography: Theory and Practice』やdCodeは取り出す向き、CrypTool 2は送る向きで、
+            資料によって違います。鍵の数字だけを渡すと、受け取った側が逆に読んで別の暗号文になることがあります（Gaines『Elementary Cryptanalysis』1939も両方の使い方を挙げています）。
+            鍵生成タブの切り替えで、どちらの書き方でも入力・表示できます。
           </p>
           <div class="example-box">
-            <h4>具体例：パターン 3-1-4-2</h4>
+            <h4>具体例：パターン3-1-4-2</h4>
             <table class="example-table">
               <tr>
                 <th>元の位置</th>
@@ -372,12 +415,17 @@
               <p class="note">不足ブロックは転置されずに残ります。</p>
             </div>
           </div>
+          <p>
+            埋字と平文の末尾の文字は、暗号文からは見分けられません。たとえば<code>TAX</code>を埋字Xで暗号化すると<code>AXTX</code>になり、
+            復号で末尾のXを除くと<code>TA</code>まで削れてしまいます。平文の末尾が埋字と同じ文字なら、本ツールは暗号化のときに知らせます。埋字を別の文字（Qなど）にすると避けられます。
+          </p>
           </details>
         </div>
 
         <div class="study-section">
           <details class="study-accordion">
             <summary><h3>🔐 置換暗号との違い</h3></summary>
+          <div class="table-wrap">
           <table class="comparison-table">
             <thead>
               <tr>
@@ -395,7 +443,7 @@
               <tr>
                 <td><strong>頻度分布</strong></td>
                 <td>保存される</td>
-                <td>変化する（単一換字）または隠蔽される（多表式）</td>
+                <td>単一換字は形が保たれ文字だけが入れ替わる。多表式は平らに近づく</td>
               </tr>
               <tr>
                 <td><strong>例</strong></td>
@@ -414,6 +462,7 @@
               </tr>
             </tbody>
           </table>
+          </div>
           </details>
         </div>
 
@@ -425,7 +474,7 @@
               <h4>💪 強み</h4>
               <ul>
                 <li>実装が単純で高速</li>
-                <li>ブロックサイズが大きいほど組み合わせが爆発的に増加（n! 通り）</li>
+                <li>ブロックの長さnに対して鍵はn!通り（n=16で約2<sup>44</sup>、n=20で約2<sup>61</sup>）</li>
                 <li>置換暗号と組み合わせることで強固になる</li>
               </ul>
             </div>
@@ -434,7 +483,8 @@
               <ul>
                 <li>文字の頻度分布が変化しないため、アナグラム解析が可能</li>
                 <li>短いブロックでは総当たり攻撃が容易</li>
-                <li>既知平文攻撃に対して脆弱</li>
+                <li>既知平文攻撃に対して脆弱（平文と暗号文の1ブロックで、同じ文字がなければ鍵が1つに決まる）</li>
+                <li>どのブロックも同じ鍵なので、ブロックを縦に並べて列を並べ替える方法（多重アナグラム）で、鍵を知らなくても解読が可能（鍵の数が多くても安全とは限らない）</li>
                 <li>単独では現代の暗号として不十分</li>
               </ul>
             </div>
@@ -461,11 +511,13 @@
           <div class="related-ciphers">
             <div class="cipher-card">
               <h4>レールフェンス暗号</h4>
-              <p>ジグザグ状に文字を配置して読み取る転置暗号の一種。</p>
+              <p>ジグザグ状に文字を配置して読み取る転置暗号の一種。長さを決めれば1つの順列で書ける。</p>
+              <p><a href="https://ipusiron.github.io/railfence-cipherlab/" target="_blank" rel="noopener noreferrer">RailFence CipherLab（Day034）</a></p>
             </div>
             <div class="cipher-card">
-              <h4>カラムナー暗号</h4>
-              <p>表を使った転置暗号。列の順序を鍵で制御する。</p>
+              <h4>縦列転置式暗号（カラムナー暗号）</h4>
+              <p>表を使った転置暗号。列の順序を鍵で制御する。暗号文の長さを決めれば1つの順列で書ける。</p>
+              <p><a href="https://ipusiron.github.io/columnar-cipherlab/" target="_blank" rel="noopener noreferrer">Columnar CipherLab（Day043）</a></p>
             </div>
             <div class="cipher-card">
               <h4>ADFGVX暗号</h4>
@@ -474,6 +526,7 @@
             <div class="cipher-card">
               <h4>DES（Data Encryption Standard）</h4>
               <p>P-Boxで転置、S-Boxで置換を行う現代ブロック暗号。</p>
+              <p><a href="https://ipusiron.github.io/toyspn-builder/" target="_blank" rel="noopener noreferrer">ToySPN Builder（Day094）</a></p>
             </div>
           </div>
           </details>
@@ -484,6 +537,8 @@
             <summary><h3>📖 参考文献・学習リソース</h3></summary>
           <ul class="reference-list">
             <li>Simon Singh『暗号解読』（新潮社） - 古典暗号から現代暗号までの歴史</li>
+            <li>Douglas R. Stinson "Cryptography: Theory and Practice" - 転置式暗号（Permutation Cipher）を取り出す向きの式で定義し、ヒル暗号の特別な場合として扱う</li>
+            <li>Helen Fouché Gaines "Elementary Cryptanalysis" (1939) - 同じ鍵の2通りの使い方と、ブロックを縦に並べて解く多重アナグラム（Project Gutenberg #75074）</li>
             <li>C.E. Shannon "Communication Theory of Secrecy Systems" (1949) - 拡散と混乱の理論的基礎</li>
             <li>Bruce Schneier『暗号技術大全』- 実践的な暗号アルゴリズムの解説</li>
             <li>CrypTool - インタラクティブな暗号学習ツール（オープンソース）</li>
@@ -496,12 +551,15 @@
 
   <footer>
     <div class="footer">
-      🔗 GitHubリポジトリはこちら（ <a href="https://github.com/ipusiron/permutation-cipherlab" target="_blank">ipusiron/permutation-cipherlab</a> ）
+      🔗 <a href="https://github.com/ipusiron/permutation-cipherlab" target="_blank" rel="noopener noreferrer">GitHubリポジトリ：ipusiron/permutation-cipherlab</a>
     </div>
   </footer>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+  <script src="js/permutation-core.js"></script>
+  <script src="js/messages.js"></script>
+  <script src="js/wiring.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

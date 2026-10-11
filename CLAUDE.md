@@ -4,127 +4,63 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Permutation CipherLab** is a static web application that demonstrates permutation (transposition) ciphers for educational purposes. It allows users to encrypt/decrypt text by rearranging characters according to custom patterns (e.g., `3-1-4-2`).
+**Permutation CipherLab** is a static web application that demonstrates permutation (block transposition) ciphers for educational purposes. Text is split into blocks of the key length, and every block is rearranged by the same permutation key (e.g., `3-1-4-2`).
 
 This is part of the "100 Security Tools with Generative AI" project (Day 095).
 
-## Running the Application
+## Running and Testing
 
-This is a static site with no build process or dependencies:
+No build step and no dependencies.
 
 ```bash
-# Open in browser directly
+# Open index.html directly (file:// works: scripts are classic scripts, not ES modules)
 start index.html
 
-# Or serve locally (if needed)
+# Or serve locally
 python -m http.server 8000
+
+# Tests (Node.js 22+, node:test only)
+npm test
 ```
 
-The app runs entirely in the browser using vanilla JavaScript.
+GitHub Actions (`.github/workflows/test.yml`) runs `npm test` on push and pull request.
 
 ## Architecture
 
-### Core Components
+| File | Role |
+|---|---|
+| `js/permutation-core.js` | Pure logic (`PermutationCore`, also `module.exports`). No DOM. Returns errors/notes as `{ key, params }` |
+| `js/messages.js` | UI strings (`PclMessages.format(lang, key, params)`). Japanese only for now |
+| `js/wiring.js` | SVG wiring diagram (`PclWiring.render`). Attributes and classes only (no `style` attributes) |
+| `script.js` | DOM controller. Single `state` object; every input change recomputes and re-renders |
+| `index.html` | Tabs: 鍵生成 / 暗号化 / 復号 / 座学 |
+| `style.css` | Design tokens in `:root` (`--primary-strong`, `--muted-strong`, `--wire`, …) |
 
-**Single-page application with four tabs:**
-- **鍵生成 (Key Generation)**: Generate permutation patterns via random, manual input, or drag-and-drop
-- **暗号化 (Encryption)**: Encrypts plaintext by applying permutation pattern with block navigation
-- **復号 (Decryption)**: Decrypts ciphertext by applying inverse permutation
-- **座学 (Study)**: Educational content about permutation ciphers
+### Key conventions
 
-**Key files:**
-- `index.html`: Complete UI structure with four tab panels
-- `script.js`: All application logic (~950 lines, no frameworks)
-- `style.css`: Full styling with CSS variables
-- `IMPLEMENTATION.md`: Detailed algorithm documentation for developers
-- No external dependencies or build tools
+- Internally a key is the **scatter ("送る向き")** array `p` (1-based): plaintext char `i` goes to ciphertext position `p[i]`. `3-1-4-2` turns `ENIG` into `NGEI` and `ABCD` into `BDAC`.
+- The **gather ("取り出す向き")** notation (Stinson, dCode) is the inverse permutation. The UI toggle changes only how keys are written and read (`toNotation` / `fromNotation`); the stored key and all outputs stay the same.
+- Saved keys (`localStorage` key `pcl_patterns_v1`, `[{name, pattern}]`) are always stored in scatter notation and validated with `sanitizeSaved` on load.
 
-### Core Cryptographic Logic (script.js)
+### Behaviour that tests depend on
 
-**Permutation handling:**
-- `parsePattern(str, n)`: Parses pattern strings like "3-1-4-2", "3 1 4 2", or "3,1,4,2" (script.js:94-119)
-- `validatePermutation(perm)`: Ensures pattern is valid (1..n with no duplicates) (script.js:127-164)
-- `inversePermutation(perm)`: Computes the inverse permutation for decryption (script.js:172-178)
-- `applyPermutationToBlock(block, perm, padChar, padEnable)`: Applies permutation to a single block (script.js:202-222)
-- `applyPermutation(str, perm, padChar, padEnable)`: Block-wise encryption using `chunkBy` (script.js:232-237)
-- `generateRandomPermutation(n)`: Fisher-Yates shuffle for random pattern generation (script.js:266-274)
+- Text is NFC-normalized and processed per code point (emoji are never split).
+- Padding: one visible code point (default `X`). Encryption warns (`enc.endsWithPad`) when the plaintext ends with the pad char. Decryption trims at most `n − 1` trailing pad chars, and only when the ciphertext length is a multiple of `n`.
+- Without padding, a short final block is left as-is (`enc.shortBlockKept` / `dec.shortBlockKept`).
+- Random keys use `crypto.getRandomValues` with rejection sampling; there is no `Math.random` fallback.
+- The step-by-step view keeps only `state.enc.step` (number of wires drawn); the picture is derived from `partialBlock()`. Any input/key/block change stops autoplay and shows all wires.
+- The key editor registers its listeners once on the `<ol>` (event delegation).
 
-**Key algorithm details:**
-- Block-wise processing: text is split into chunks of size `n` (pattern length)
-- 1-based indexing for permutation patterns (user-facing)
-- 0-based indexing internally (implementation)
-- Optional padding for incomplete final blocks
-- Pattern editor supports text input or drag-and-drop GUI
+## Constraints
 
-### Global State
-
-- `currentKey`: Current active permutation pattern (global variable)
-- `STORAGE_KEY = 'pcl_patterns_v1'`: localStorage key for saved patterns
-
-### Data Persistence
-
-**localStorage storage:**
-- Key: `pcl_patterns_v1`
-- Stores saved permutation patterns as JSON array: `[{name, pattern}, ...]`
-- Functions: `loadSaved()`, `saveSaved(list)`, `addSaved(name, pattern)` (script.js:427-490)
-
-### UI Architecture
-
-**Tab system:**
-- Manual DOM manipulation for tab switching (script.js:73-81)
-- Each tab has separate DOM element references (`keygenEls`, `encryptEls`, `decryptEls`)
-- No routing or state management library
-
-**Drag-and-drop pattern editor:**
-- `openDragEditor()`: Initializes draggable list from pattern (script.js:493-535)
-- `readDragPattern()`: Reads current order from DOM (script.js:537-539)
-- Uses native HTML5 drag-and-drop API
-
-**Block navigation (encryption tab):**
-- `encryptBlocks`: Stores input/output block arrays
-- `encryptCurrentBlock`: Current block index for navigation
-- `updateEncryptBlockNav()`: Updates navigation UI and mapping table (script.js:764-775)
-
-**Mapping tables:**
-- `renderMapTable()`: Shows before/after character correspondence (script.js:542-561)
-- Block navigation allows viewing each block's transformation
-
-### Pattern Validation
-
-Permutation patterns must be:
-- Length ≥ 2 (max 64)
-- Contain integers 1 through n exactly once
-- No duplicates or missing values
-
-Example: For n=4, valid pattern is `[3,1,4,2]`, invalid is `[3,1,1,2]` (duplicate 1, missing 4)
-
-### Security Considerations
-
-- **XSS Prevention**: All user input inserted via `textContent`, never `innerHTML`
-- **Client-side only**: No server communication, all processing in browser
-- **Educational purpose**: Not for production cryptographic use
-
-## Common Development Tasks
-
-**Testing encryption/decryption:**
-1. Open index.html in browser
-2. Default test case: "ENIGMA IS FUN" with pattern "3-1-4-2"
-3. Switch to 復号 tab to decrypt the result
-
-**Modifying cipher logic:**
-- Core permutation logic: `applyPermutationToBlock()` in script.js:202-222
-- Inverse computation: `inversePermutation()` in script.js:172-178
-- Block processing: `chunkBy()` in script.js:186-192
-
-**Adding new features:**
-- New tabs: Add button to `.tabs`, panel to `main`, update tab click handler (script.js:73-81)
-- New cipher modes: Follow the pattern of `keygenEls`, `encryptEls`, or `decryptEls` object structure
-- Pattern validation: Modify `validatePermutation()` in script.js:127-164
+- Keep CSP-compatible: no inline scripts, no `on*` attributes, no `style` attributes in HTML. Use `hidden`, classes, or CSSOM.
+- `script.js` must not contain Japanese string literals; add strings to `js/messages.js` (checked by `test/messages.test.js`).
+- README examples are recomputed by `test/readme.test.js`. Change the logic and the README tables together.
+- Do not add npm dependencies, CDNs, or a bundler.
 
 ## Educational Context
 
-This tool demonstrates:
-- **Permutation vs Substitution**: Characters are rearranged, not replaced
-- **Block cipher structure**: Modern ciphers like DES/AES use P-boxes (permutation boxes) for diffusion
-- **Historical context**: From Scytale cipher to columnar transposition to modern P-boxes
-- **Key concept**: Simple reordering can function as a cryptographic "key"
+- Permutation vs substitution, inverse permutations, key space n!
+- Scatter vs gather notation differs between textbooks and tools (Stinson / dCode vs CrypTool 2 / Crypto Corner); Gaines (1939) shows both uses of one key.
+- Fixed-length rail fence, scytale, columnar and route ciphers are all single permutations; the README gives equivalent keys.
+- Padding is ambiguous with plaintext that ends in the pad character (`TAX` → `AXTX` → `TA`).

@@ -1138,3 +1138,4 @@ select:focus-visible{outline:3px solid var(--focus); outline-offset:2px}
 .pair-list li.good{background:#ecfdf5; border-color:#047857; color:#065f46}
 .pair-list li.mid{background:#f8fafc; color:var(--muted-strong)}
 .pair-list li.bad{background:#fef2f2; border-color:#b91c1c; color:#991b1b}
+#coa-table th{white-space:nowrap}

@@ -89,7 +89,7 @@
     'conv.help.rail-sequential': '文字を1→2→…→r→1…の順にレールへ配り、レールごとに読みます（RailFence CipherLabの方式1）。',
     'conv.help.rail-zigzag': '文字をジグザグにレールへ配り（端で折り返す）、レールごとに読みます（RailFence CipherLabの方式2）。',
     'conv.help.scytale': '行数の表に行方向で書き、列ごとに上から読みます。空きのマスは飛ばします（Scytale Cipher Visualizerと同じ）。',
-    'conv.help.columnar': '列数＝鍵の長さの表に行方向で書き、順位の小さい列から上→下に読みます（Columnar CipherLabと同じ。不完全な表も可）。',
+    'conv.help.columnar': '列数＝鍵の長さの表に行方向で書き、順位の小さい列から上→下に読みます（Columnar CipherLabと同じで、不完全な表も可）。',
     'conv.help.spiral': '行数×列数の表に行方向で書き、左上から時計回りに内側へ読みます。文字数は行数×列数です。',
     'conv.help.reverse': '文字の並びを後ろから読みます。',
     'conv.sampleShort': '試す文は{n}文字以上にしてください（空欄ならA, B, C…を使います）',

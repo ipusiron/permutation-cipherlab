@@ -6,7 +6,7 @@ const { MESSAGES, format } = require('../js/messages.js');
 
 const root = path.join(__dirname, '..');
 const script = fs.readFileSync(path.join(root, 'script.js'), 'utf8');
-const core = fs.readFileSync(path.join(root, 'js/permutation-core.js'), 'utf8');
+const core = ['js/permutation-core.js', 'js/solver.js'].map(f => fs.readFileSync(path.join(root, f), 'utf8')).join(String.fromCharCode(10));
 
 // 日本語（ひらがな・カタカナ・漢字・全角の記号）の判定はコードポイントの範囲で行う
 const JA_RANGES = [[0x3000, 0x30ff], [0x3400, 0x4dbf], [0x4e00, 0x9fff], [0xff00, 0xffef]];

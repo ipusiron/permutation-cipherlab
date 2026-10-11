@@ -175,6 +175,7 @@ test('ディレクトリー構造: 全ファイルが載り、全行に説明が
   const walk = rel => {
     for (const e of fs.readdirSync(path.join(root, rel), { withFileTypes: true })) {
       if (['.git', '.claude', 'node_modules'].includes(e.name)) continue;
+      if (rel === 'tools' && e.name === 'corpus') continue; // Git の対象外（統計を作るための本文）
       const p = rel ? `${rel}/${e.name}` : e.name;
       if (e.isDirectory()) walk(p); else actual.push(p);
     }

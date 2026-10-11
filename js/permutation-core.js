@@ -241,6 +241,261 @@
     return { items, dropped };
   }
 
+  /* ==========================================================================
+   * 順列の性質
+   * ========================================================================== */
+
+  /** 巡回表記。位置 i の文字は p[i] へ移る。各巡回は最小の位置から始める（長さ1も含む） */
+  function cycles(perm) {
+    const seen = new Array(perm.length).fill(false);
+    const out = [];
+    for (let i = 0; i < perm.length; i++) {
+      if (seen[i]) continue;
+      const cyc = [];
+      for (let j = i; !seen[j]; j = perm[j] - 1) {
+        seen[j] = true;
+        cyc.push(j + 1);
+      }
+      out.push(cyc);
+    }
+    return out;
+  }
+
+  const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+
+  /** 位数（同じ鍵を何回かけると元に戻るか）＝巡回の長さの最小公倍数 */
+  function order(perm) {
+    return cycles(perm).reduce((acc, c) => (acc / gcd(acc, c.length)) * c.length, 1);
+  }
+
+  /** 動かない位置（1始まり） */
+  function fixedPoints(perm) {
+    return perm.map((to, i) => (to === i + 1 ? i + 1 : 0)).filter(Boolean);
+  }
+
+  /** 2回かけると元に戻るか（自分自身が逆の順列） */
+  function isInvolution(perm) {
+    return perm.every((to, i) => perm[to - 1] === i + 1);
+  }
+
+  /** 同じ鍵を k 回続けてかけた鍵 */
+  function power(perm, k) {
+    let out = perm.map((_, i) => i + 1);
+    for (let t = 0; t < k; t++) out = compose(out, perm);
+    return out;
+  }
+
+  /** 置換行列。M[j][i] = 1 は「平文の位置 i+1 の文字が暗号文の位置 j+1 へ移る」（暗号文の列ベクトル＝M×平文の列ベクトル） */
+  function permutationMatrix(perm) {
+    const n = perm.length;
+    const m = Array.from({ length: n }, () => new Array(n).fill(0));
+    perm.forEach((to, i) => { m[to - 1][i] = 1; });
+    return m;
+  }
+
+  /** log2(n!)（鍵の数のビット数） */
+  function log2Factorial(n) {
+    let s = 0;
+    for (let k = 2; k <= n; k++) s += Math.log2(k);
+    return s;
+  }
+
+  /* ==========================================================================
+   * ほかの転置式暗号を、長さ L の1つの順列（送る向き）にする
+   * どれも「暗号文の k 文字目に平文の何文字目が来るか」（読む順）を作り、送る向きに直す
+   * ========================================================================== */
+
+  function fromReadOrder(readOrder) {
+    const perm = new Array(readOrder.length);
+    readOrder.forEach((src, k) => { perm[src] = k + 1; });
+    return perm;
+  }
+
+  function checkLength(L) {
+    if (!Number.isInteger(L) || L < MIN_LENGTH || L > MAX_LENGTH) {
+      return { ok: false, error: { key: 'convert.length', params: { min: MIN_LENGTH, max: MAX_LENGTH } } };
+    }
+    return null;
+  }
+
+  /** レールフェンス。sequential＝1→2→…→r→1…（Day034 の方式1）、zigzag＝端で折り返す（方式2） */
+  function railFence(L, rails, method = 'sequential') {
+    const bad = checkLength(L);
+    if (bad) return bad;
+    if (!Number.isInteger(rails) || rails < 2 || rails >= L) {
+      return { ok: false, error: { key: 'convert.rails', params: { max: L - 1 } } };
+    }
+    const period = method === 'zigzag' ? 2 * (rails - 1) : rails;
+    const railOf = (i) => {
+      const k = i % period;
+      return method === 'zigzag' && k >= rails ? period - k : k;
+    };
+    const readOrder = [];
+    for (let r = 0; r < rails; r++) for (let i = 0; i < L; i++) if (railOf(i) === r) readOrder.push(i);
+    return { ok: true, perm: fromReadOrder(readOrder) };
+  }
+
+  /** スキュタレー（Day010 と同じ）。行数 rows の表に行方向で書き、列方向に読む。空きのマスは飛ばす */
+  function scytale(L, rows) {
+    const bad = checkLength(L);
+    if (bad) return bad;
+    if (!Number.isInteger(rows) || rows < 2 || rows >= L) {
+      return { ok: false, error: { key: 'convert.rows', params: { max: L - 1 } } };
+    }
+    const cols = Math.ceil(L / rows);
+    const readOrder = [];
+    for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) if (r * cols + c < L) readOrder.push(r * cols + c);
+    return { ok: true, perm: fromReadOrder(readOrder) };
+  }
+
+  /** 縦列転置の鍵（Day043 と同じ読み方）。数列は列の順位、キーワードはアルファベット順（同じ文字は左が先） */
+  function columnarRanks(str) {
+    const text = String(str ?? '').normalize('NFKC').trim();
+    if (/\d/.test(text)) {
+      const parsed = parseNumbers(text);
+      if (!parsed.ok) return parsed;
+      const v = validatePermutation(parsed.values);
+      return v.ok ? { ok: true, ranks: parsed.values } : v;
+    }
+    const letters = text.toUpperCase().replace(/[^A-Z]/g, '');
+    if (letters.length < MIN_LENGTH || letters.length > MAX_LENGTH) {
+      return { ok: false, error: { key: 'convert.keyword', params: { min: MIN_LENGTH, max: MAX_LENGTH } } };
+    }
+    const idx = [...letters].map((ch, i) => [ch, i]).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] - b[1]));
+    const ranks = new Array(letters.length);
+    idx.forEach(([, i], r) => { ranks[i] = r + 1; });
+    return { ok: true, ranks };
+  }
+
+  /** 縦列転置。長さ L の文を列数 ranks.length の表に行方向で書き、順位の小さい列から上→下に読む（不完全な表も可） */
+  function columnar(L, ranks) {
+    const bad = checkLength(L);
+    if (bad) return bad;
+    const cols = ranks.length;
+    if (cols >= L) return { ok: false, error: { key: 'convert.columns', params: { max: L - 1 } } };
+    const colOrder = ranks.map((r, c) => [r, c]).sort((a, b) => a[0] - b[0]).map(x => x[1]);
+    const readOrder = [];
+    for (const c of colOrder) for (let i = c; i < L; i += cols) readOrder.push(i);
+    return { ok: true, perm: fromReadOrder(readOrder) };
+  }
+
+  /** 経路暗号（渦巻き）。rows×cols の表に行方向で書き、左上から時計回りに内側へ読む */
+  function spiral(rows, cols) {
+    const L = rows * cols;
+    const bad = checkLength(L);
+    if (bad) return bad;
+    if (rows < 2 || cols < 2) return { ok: false, error: { key: 'convert.grid' } };
+    const readOrder = [];
+    let top = 0, bottom = rows - 1, left = 0, right = cols - 1;
+    while (top <= bottom && left <= right) {
+      for (let c = left; c <= right; c++) readOrder.push(top * cols + c);
+      for (let r = top + 1; r <= bottom; r++) readOrder.push(r * cols + right);
+      if (top < bottom) for (let c = right - 1; c >= left; c--) readOrder.push(bottom * cols + c);
+      if (left < right) for (let r = bottom - 1; r > top; r--) readOrder.push(r * cols + left);
+      top++; bottom--; left++; right--;
+    }
+    return { ok: true, perm: fromReadOrder(readOrder) };
+  }
+
+  /** 逆順（文字の並びを後ろから読む） */
+  function reverse(L) {
+    const bad = checkLength(L);
+    if (bad) return bad;
+    return { ok: true, perm: Array.from({ length: L }, (_, i) => L - i) };
+  }
+
+  /* ==========================================================================
+   * 既知平文: 平文と暗号文の組から、矛盾しない鍵（送る向き）を求めて数える
+   * ========================================================================== */
+  const COUNT_LIMIT = 20;   // 数え上げは n≤20 まで（2^n の表を使う）
+
+  /** 1つの完全マッチング（増加路法）。見つからなければ null */
+  function findMatching(allowed) {
+    const n = allowed.length;
+    const matchOfCipher = new Array(n).fill(-1);
+    const tryAssign = (i, seen) => {
+      for (const j of allowed[i]) {
+        if (seen[j]) continue;
+        seen[j] = true;
+        if (matchOfCipher[j] < 0 || tryAssign(matchOfCipher[j], seen)) {
+          matchOfCipher[j] = i;
+          return true;
+        }
+      }
+      return false;
+    };
+    for (let i = 0; i < n; i++) if (!tryAssign(i, new Array(n).fill(false))) return null;
+    const perm = new Array(n);
+    matchOfCipher.forEach((i, j) => { perm[i] = j + 1; });
+    return perm;
+  }
+
+  /** 完全マッチングの数（n≤20）。2^53 を超える場合は Infinity にせず近似値になるので、上限を返す側で扱う */
+  function countMatchings(allowed) {
+    const n = allowed.length;
+    const masks = allowed.map(list => list.reduce((m, j) => m | (1 << j), 0));
+    const dp = new Float64Array(1 << n);
+    dp[0] = 1;
+    for (let mask = 0; mask < (1 << n); mask++) {
+      const v = dp[mask];
+      if (!v) continue;
+      let i = 0;
+      for (let x = mask; x; x &= x - 1) i++;
+      if (i >= n) continue;
+      let free = masks[i] & ~mask;
+      while (free) {
+        const bit = free & -free;
+        dp[mask | bit] += v;
+        free ^= bit;
+      }
+    }
+    return dp[(1 << n) - 1];
+  }
+
+  /**
+   * 平文と暗号文（同じ鍵・同じ埋字で作ったもの）から、ブロック長 n の鍵を調べる。
+   * 完全なブロックだけを使う。返す値: consistent（矛盾しない鍵があるか）、count（鍵の数。n>20 は null）、
+   * key（1つ。count が1なら唯一の鍵）、candidates（平文の各位置が行けそうな暗号文の位置）、blocks（使ったブロック数）
+   */
+  function knownPlaintext(plainText, cipherText, n) {
+    const P = toUnits(plainText);
+    const Cu = toUnits(cipherText);
+    const blocks = Math.floor(Math.min(P.length, Cu.length) / n);
+    if (blocks < 1) return { ok: false, error: { key: 'kpa.tooShort', params: { n } } };
+    const allowed = [];
+    for (let i = 0; i < n; i++) {
+      const list = [];
+      for (let j = 0; j < n; j++) {
+        let ok = true;
+        for (let r = 0; r < blocks && ok; r++) ok = P[r * n + i] === Cu[r * n + j];
+        if (ok) list.push(j);
+      }
+      allowed.push(list);
+    }
+    const key = findMatching(allowed);
+    const count = !key ? 0 : n <= COUNT_LIMIT ? countMatchings(allowed) : null;
+    return {
+      ok: true,
+      n,
+      blocks,
+      consistent: Boolean(key),
+      count,
+      key,
+      candidates: allowed.map(list => list.map(j => j + 1)),
+    };
+  }
+
+  /** ブロック長がわからないとき、2〜上限の各 n で矛盾しない鍵があるかを調べる */
+  function knownPlaintextScan(plainText, cipherText, maxN = MAX_LENGTH) {
+    const len = Math.min(toUnits(plainText).length, toUnits(cipherText).length);
+    const out = [];
+    for (let n = MIN_LENGTH; n <= Math.min(maxN, len); n++) {
+      const r = knownPlaintext(plainText, cipherText, n);
+      if (r.ok && r.consistent) out.push({ n, count: r.count, blocks: r.blocks, key: r.key });
+    }
+    return out;
+  }
+
   const api = {
     MIN_LENGTH,
     MAX_LENGTH,
@@ -262,6 +517,25 @@
     partialBlock,
     compose,
     sanitizeSaved,
+    cycles,
+    order,
+    fixedPoints,
+    isInvolution,
+    power,
+    permutationMatrix,
+    log2Factorial,
+    fromReadOrder,
+    railFence,
+    scytale,
+    columnarRanks,
+    columnar,
+    spiral,
+    reverse,
+    COUNT_LIMIT,
+    findMatching,
+    countMatchings,
+    knownPlaintext,
+    knownPlaintextScan,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

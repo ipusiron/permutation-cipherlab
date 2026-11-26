@@ -22,7 +22,7 @@ category_en:
   - Modern Cryptography
   - Block Cipher
 
-difficulty: 4
+difficulty: 2
 
 tags:
   - cipher
